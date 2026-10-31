@@ -4,6 +4,12 @@ const nextConfig: NextConfig = {
   /* config options here */
   // cacheComponents: true,
   // partialPrefetching: true,
+  allowedDevOrigins: ["10.60.249.197"],
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "image.tmdb.org", pathname: "/t/p/**" },
+    ],
+  },
   turbopack: {
     rules: {
       "*.css": {
