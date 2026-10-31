@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",
+    "jose": "^6.2.14",
     "mongoose": "^9.11.4",
     "next": "16.4.3",
     "react": "19.3.0",
