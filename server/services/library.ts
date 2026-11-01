@@ -1,5 +1,5 @@
 import "server-only";
-import { Types } from "mongoose";
+import { Types, type PipelineStage } from "mongoose";
 import { getEnv } from "@/server/env";
 import { connectDb } from "@/server/db";
 import { LibraryItem, type LibraryItemDoc } from "@/server/models/LibraryItem";
@@ -14,6 +14,8 @@ import type {
   LibrarySort,
   LibraryStatus,
 } from "@/lib/library-types";
+import { GENRE_NAMES } from "@/lib/genres";
+import type { ListQuery } from "@/server/validation/library";
 
 const PAGE_SIZE = 24;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -180,7 +182,7 @@ const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export async function listLibrary(
   userId: string,
-  opts: { status?: LibraryStatus; sort: LibrarySort; q?: string; page: number },
+  opts: ListQuery,
 ): Promise<LibraryList> {
   await connectDb();
 
@@ -191,6 +193,19 @@ export async function listLibrary(
   if (opts.status) filter.status = opts.status;
   if (opts.q)
     filter["snapshot.title"] = { $regex: escapeRegex(opts.q), $options: "i" };
+
+  if (opts.genre) filter["snapshot.genreIds"] = opts.genre; // array contains this id
+  if (opts.year) {
+    // "YYYY-MM-DD" strings compare correctly, so a range works
+    filter["snapshot.releaseDate"] = {
+      $gte: `${opts.year}-01-01`,
+      $lt: `${opts.year + 1}-01-01`,
+    };
+  }
+  if (opts.rating === "unrated")
+    filter.personalRating = null; // matches null or missing
+  else if (opts.rating)
+    filter.personalRating = { $gte: Number(opts.rating) * 2 }; // stars -> 1-10
 
   const [docs, total] = await Promise.all([
     LibraryItem.find(filter)
@@ -227,4 +242,42 @@ export async function getCounts(userId: string): Promise<LibraryCounts> {
     counts.total += r.n;
   }
   return counts;
+}
+
+export type FilterOptions = {
+  years: number[];
+  genres: { id: number; name: string }[];
+};
+
+export async function getFilterOptions(userId: string): Promise<FilterOptions> {
+  await connectDb();
+  const base: PipelineStage = {
+    $match: { userId: oid(userId), mediaType: "movie" },
+  };
+
+  const [yearRows, genreRows] = await Promise.all([
+    LibraryItem.aggregate<{ _id: string }>([
+      base,
+      { $match: { "snapshot.releaseDate": { $type: "string" } } },
+      { $group: { _id: { $substrBytes: ["$snapshot.releaseDate", 0, 4] } } },
+    ]),
+    LibraryItem.aggregate<{ _id: number }>([
+      base,
+      { $unwind: "$snapshot.genreIds" },
+      { $group: { _id: "$snapshot.genreIds" } },
+    ]),
+  ]);
+
+  const years = yearRows
+    .map((r) => r._id)
+    .filter((y) => /^\d{4}$/.test(y))
+    .map(Number)
+    .sort((a, b) => b - a);
+
+  const genres = genreRows
+    .filter((r) => r._id in GENRE_NAMES) // ignore ids we have no name for
+    .map((r) => ({ id: r._id, name: GENRE_NAMES[r._id] }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { years, genres };
 }

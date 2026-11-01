@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUserOrRedirect } from "@/server/auth/session";
-import { getCounts, listLibrary } from "@/server/services/library";
-import { listQuerySchema } from "@/server/validation/library";
+import {
+  getCounts,
+  getFilterOptions,
+  listLibrary,
+} from "@/server/services/library";
+import { listQuerySchema, type ListQuery } from "@/server/validation/library";
 import LibraryCard from "@/components/LibraryCard";
 import type { LibrarySort, LibraryStatus } from "@/lib/library-types";
 
@@ -26,34 +30,44 @@ const SORT_LABELS: Record<LibrarySort, string> = {
   rating: "My rating",
 };
 
+const RATING_LABELS: { value: string; label: string }[] = [
+  { value: "unrated", label: "Unrated" },
+  { value: "5", label: "5 stars" },
+  { value: "4", label: "4 stars & up" },
+  { value: "3", label: "3 stars & up" },
+  { value: "2", label: "2 stars & up" },
+  { value: "1", label: "1 star & up" },
+];
+
 const EMPTY_MESSAGES: Record<LibraryStatus, string> = {
   watched: "Nothing marked as watched yet.",
   watching: "You're not watching anything right now.",
   watchlist: "Your watchlist is empty.",
 };
 
-function href(p: {
-  status?: LibraryStatus;
-  sort: LibrarySort;
-  q?: string;
-  page?: number;
-}) {
+function href(p: Partial<ListQuery>) {
   const sp = new URLSearchParams();
   if (p.status) sp.set("status", p.status);
-  if (p.sort !== "added") sp.set("sort", p.sort);
+  if (p.sort && p.sort !== "added") sp.set("sort", p.sort);
   if (p.q) sp.set("q", p.q);
+  if (p.genre) sp.set("genre", String(p.genre));
+  if (p.year) sp.set("year", String(p.year));
+  if (p.rating) sp.set("rating", p.rating);
   if (p.page && p.page > 1) sp.set("page", String(p.page));
   const s = sp.toString();
   return s ? `/collection?${s}` : "/collection";
 }
 
+const selectClass = "rounded border border-neutral-700 bg-neutral-900 p-2";
+
 export default async function CollectionPage({ searchParams }: Props) {
   const user = await requireUserOrRedirect();
   const query = listQuerySchema.parse(await searchParams);
 
-  const [list, counts] = await Promise.all([
+  const [list, counts, options] = await Promise.all([
     listLibrary(user.id, query),
     getCounts(user.id),
+    getFilterOptions(user.id),
   ]);
 
   // Hand-edited or stale link pointing past the last page
@@ -61,10 +75,23 @@ export default async function CollectionPage({ searchParams }: Props) {
     redirect(href({ ...query, page: list.totalPages }));
   }
 
+  // Tabs keep the active filters but reset to page 1
+  const filtersOnly = {
+    sort: query.sort,
+    q: query.q,
+    genre: query.genre,
+    year: query.year,
+    rating: query.rating,
+  };
+  const hasFilters = Boolean(
+    query.q || query.genre || query.year || query.rating,
+  );
+  const canReset = hasFilters || query.sort !== "added";
+
   const tabCount = (status?: LibraryStatus) =>
     status ? counts[status] : counts.total;
-  const emptyMessage = query.q
-    ? `No titles in your collection match “${query.q}”.`
+  const emptyMessage = hasFilters
+    ? "No titles match your search and filters."
     : query.status
       ? EMPTY_MESSAGES[query.status]
       : "Your collection is empty.";
@@ -79,7 +106,7 @@ export default async function CollectionPage({ searchParams }: Props) {
           return (
             <Link
               key={t.label}
-              href={href({ status: t.status, sort: query.sort, q: query.q })}
+              href={href({ ...filtersOnly, status: t.status })}
               aria-current={active ? "page" : undefined}
               className={`rounded border px-3 py-1.5 text-sm ${
                 active
@@ -95,6 +122,9 @@ export default async function CollectionPage({ searchParams }: Props) {
           );
         })}
       </nav>
+      <p className="-mt-2 mb-4 text-xs text-neutral-500">
+        Tab counts show all titles, before search and filters.
+      </p>
 
       <form
         action="/collection"
@@ -104,6 +134,7 @@ export default async function CollectionPage({ searchParams }: Props) {
         {query.status && (
           <input type="hidden" name="status" value={query.status} />
         )}
+
         <label className="text-sm">
           <span className="block text-neutral-400">Search your collection</span>
           <input
@@ -115,13 +146,58 @@ export default async function CollectionPage({ searchParams }: Props) {
             className="w-56 rounded border border-neutral-700 bg-neutral-900 p-2"
           />
         </label>
+
+        <label className="text-sm">
+          <span className="block text-neutral-400">Genre</span>
+          <select
+            name="genre"
+            defaultValue={query.genre ?? ""}
+            className={selectClass}
+          >
+            <option value="">Any genre</option>
+            {options.genres.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-sm">
+          <span className="block text-neutral-400">Release year</span>
+          <select
+            name="year"
+            defaultValue={query.year ?? ""}
+            className={selectClass}
+          >
+            <option value="">Any year</option>
+            {options.years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-sm">
+          <span className="block text-neutral-400">My rating</span>
+          <select
+            name="rating"
+            defaultValue={query.rating ?? ""}
+            className={selectClass}
+          >
+            <option value="">Any rating</option>
+            {RATING_LABELS.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="text-sm">
           <span className="block text-neutral-400">Sort by</span>
-          <select
-            name="sort"
-            defaultValue={query.sort}
-            className="rounded border border-neutral-700 bg-neutral-900 p-2"
-          >
+          <select name="sort" defaultValue={query.sort} className={selectClass}>
             {Object.entries(SORT_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -129,12 +205,13 @@ export default async function CollectionPage({ searchParams }: Props) {
             ))}
           </select>
         </label>
+
         <button className="rounded bg-amber-500 px-4 py-2 text-sm font-medium text-black">
           Apply
         </button>
-        {(query.q || query.sort !== "added") && (
+        {canReset && (
           <Link
-            href={href({ status: query.status, sort: "added" })}
+            href={href({ status: query.status })}
             className="py-2 text-sm underline"
           >
             Reset
@@ -145,12 +222,19 @@ export default async function CollectionPage({ searchParams }: Props) {
       {list.items.length === 0 ? (
         <div className="rounded-lg border border-neutral-800 p-6 text-center">
           <p className="text-neutral-300">{emptyMessage}</p>
-          {!query.q && (
+          {!hasFilters ? (
             <Link
               href="/discover"
               className="mt-4 inline-block rounded bg-amber-500 px-4 py-2 text-sm font-medium text-black"
             >
               Discover movies
+            </Link>
+          ) : (
+            <Link
+              href={href({ status: query.status })}
+              className="mt-4 inline-block text-sm underline"
+            >
+              Clear search and filters
             </Link>
           )}
         </div>
