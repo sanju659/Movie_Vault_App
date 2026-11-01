@@ -8,7 +8,12 @@ import type {
   SearchResult,
 } from "@/lib/movie-types";
 import { TmdbError, tmdbFetch } from "./client";
-import { mapDetails, mapSummary, type RawList } from "./mappers";
+import {
+  mapDetails,
+  mapSummary,
+  type RawList,
+  type RawDetails,
+} from "./mappers";
 
 const HOUR = 60 * 60;
 
@@ -54,7 +59,7 @@ export async function getMovieDetails(tmdbId: number): Promise<MovieDetails> {
   }
 
   try {
-    const raw = await tmdbFetch<any>(`/movie/${tmdbId}`, {
+    const raw = await tmdbFetch<RawDetails>(`/movie/${tmdbId}`, {
       append_to_response: "credits",
       language: "en-US",
     });

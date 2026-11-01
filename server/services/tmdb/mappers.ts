@@ -7,7 +7,7 @@ type RawMovie = {
   release_date?: string | null;
 };
 
-type RawDetails = RawMovie & {
+export type RawDetails = RawMovie & {
   original_title?: string;
   overview?: string | null;
   tagline?: string | null;

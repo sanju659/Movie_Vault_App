@@ -1,6 +1,13 @@
 import { Schema, model, models, type Model } from "mongoose";
 
-const tmdbCacheSchema = new Schema({
+type TmdbCacheDoc = {
+  tmdbId: number;
+  mediaType: "movie" | "tv";
+  data: unknown;
+  fetchedAt: Date;
+};
+
+const tmdbCacheSchema = new Schema<TmdbCacheDoc>({
   tmdbId: { type: Number, required: true },
   mediaType: {
     type: String,
@@ -8,10 +15,12 @@ const tmdbCacheSchema = new Schema({
     default: "movie",
     required: true,
   },
-  data: { type: Schema.Types.Mixed, required: true }, // trimmed details + credits, no user data
+  data: { type: Schema.Types.Mixed, required: true },
   fetchedAt: { type: Date, required: true },
 });
+
 tmdbCacheSchema.index({ mediaType: 1, tmdbId: 1 }, { unique: true });
 
-export const TmdbCache: Model<any> =
-  (models.TmdbCache as Model<any>) ?? model("TmdbCache", tmdbCacheSchema);
+export const TmdbCache: Model<TmdbCacheDoc> =
+  (models.TmdbCache as Model<TmdbCacheDoc>) ??
+  model<TmdbCacheDoc>("TmdbCache", tmdbCacheSchema);
