@@ -7,11 +7,13 @@ import MoviePoster from "@/components/MoviePoster";
 import ErrorState from "@/components/ErrorState";
 import { formatRuntime, imageUrl, releaseYear } from "@/lib/tmdb";
 import type { MovieDetails } from "@/lib/movie-types";
+import LibraryPanel from "@/components/LibraryPanel";
+import { getItem } from "@/server/services/library";
 
 type Props = { params: Promise<{ tmdbId: string }> };
 
 export default async function MoviePage({ params }: Props) {
-  await requireUserOrRedirect();
+  const user = await requireUserOrRedirect();
   const { tmdbId } = await params;
   if (!/^\d{1,9}$/.test(tmdbId) || Number(tmdbId) < 1) notFound();
 
@@ -26,6 +28,7 @@ export default async function MoviePage({ params }: Props) {
     );
   }
 
+  const item = await getItem(user.id, movie.tmdbId);
   const year = releaseYear(movie.releaseDate);
   const runtime = formatRuntime(movie.runtimeMinutes);
   const backdrop = imageUrl(movie.backdropPath, "w1280");
@@ -48,7 +51,7 @@ export default async function MoviePage({ params }: Props) {
             className="object-cover opacity-40"
           />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 to-transparent" />
+        <div className="absolute inset-0 bg-linear-to-t from-neutral-950 to-transparent" />
       </div>
 
       <div className="relative z-10 -mt-24 grid gap-6 sm:grid-cols-[200px_1fr]">
@@ -94,18 +97,7 @@ export default async function MoviePage({ params }: Props) {
             </p>
           )}
 
-          <section
-            aria-labelledby="your-library"
-            className="mt-8 rounded-lg border border-neutral-800 p-4"
-          >
-            <h2 id="your-library" className="font-semibold">
-              Your library
-            </h2>
-            <p className="mt-1 text-sm text-neutral-400">
-              Watchlist, ratings, and viewings will appear here (coming in the
-              next phase).
-            </p>
-          </section>
+          <LibraryPanel tmdbId={movie.tmdbId} item={item} />
 
           {movie.cast.length > 0 && (
             <section aria-labelledby="cast" className="mt-8">
