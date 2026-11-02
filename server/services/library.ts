@@ -16,6 +16,7 @@ import type {
 } from "@/lib/library-types";
 import { GENRE_NAMES } from "@/lib/genres";
 import type { ListQuery } from "@/server/validation/library";
+import { WatchEvent } from "@/server/models/WatchEvent";
 
 const PAGE_SIZE = 24;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -159,16 +160,22 @@ export async function setRating(
 
 /**
  * Remove a title from the library. Idempotent.
- * Phase 4 will add the explicit "also delete my viewings" option (rule 5.3.5);
- * until events exist there is nothing else to delete.
+ * Viewings are only deleted when the user explicitly asks (rule 5);
+ * otherwise they stay as valid "orphaned" history.
  */
 export async function removeItem(
   userId: string,
   tmdbId: number,
-): Promise<boolean> {
+  deleteEvents = false,
+) {
   await connectDb();
   const res = await LibraryItem.deleteOne(scope(userId, tmdbId));
-  return res.deletedCount > 0;
+  let deletedEvents = 0;
+  if (deleteEvents) {
+    const r = await WatchEvent.deleteMany(scope(userId, tmdbId));
+    deletedEvents = r.deletedCount;
+  }
+  return { removed: res.deletedCount > 0, deletedEvents };
 }
 
 const SORTS: Record<LibrarySort, Record<string, 1 | -1>> = {

@@ -9,6 +9,9 @@ import { formatRuntime, imageUrl, releaseYear } from "@/lib/tmdb";
 import type { MovieDetails } from "@/lib/movie-types";
 import LibraryPanel from "@/components/LibraryPanel";
 import { getItem } from "@/server/services/library";
+import ViewingHistory from "@/components/ViewingHistory";
+import { listEventsForMovie } from "@/server/services/watchEvents";
+import { todayIn } from "@/lib/dates";
 
 type Props = { params: Promise<{ tmdbId: string }> };
 
@@ -28,7 +31,11 @@ export default async function MoviePage({ params }: Props) {
     );
   }
 
-  const item = await getItem(user.id, movie.tmdbId);
+  const [item, events] = await Promise.all([
+    getItem(user.id, movie.tmdbId),
+    listEventsForMovie(user.id, movie.tmdbId),
+  ]);
+  const today = todayIn(user.timezone);
   const year = releaseYear(movie.releaseDate);
   const runtime = formatRuntime(movie.runtimeMinutes);
   const backdrop = imageUrl(movie.backdropPath, "w1280");
@@ -97,7 +104,13 @@ export default async function MoviePage({ params }: Props) {
             </p>
           )}
 
-          <LibraryPanel tmdbId={movie.tmdbId} item={item} />
+          <LibraryPanel
+            tmdbId={movie.tmdbId}
+            item={item}
+            viewingCount={events.length}
+            today={today}
+          />
+          <ViewingHistory tmdbId={movie.tmdbId} events={events} today={today} />
 
           {movie.cast.length > 0 && (
             <section aria-labelledby="cast" className="mt-8">

@@ -18,6 +18,9 @@ export default function AppHeader({ userName }: { userName: string }) {
           <Link href="/collection" className="hover:underline">
             My Collection
           </Link>
+          <Link href="/history" className="hover:underline">
+            History
+          </Link>
         </nav>
         <form action="/search" role="search" className="ml-auto w-full sm:w-64">
           <input

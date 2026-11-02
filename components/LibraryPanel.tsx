@@ -4,11 +4,13 @@ import { useOptimistic, useRef, useState, useTransition } from "react";
 import type { LibraryItemView, LibraryStatus } from "@/lib/library-types";
 import { formatStars } from "@/lib/rating";
 import {
+  logViewingAction,
   removeAction,
   setRatingAction,
   setStatusAction,
   type ActionResult,
 } from "@/app/(app)/movie/[tmdbId]/actions";
+import ViewingForm from "./ViewingForm";
 
 const STATUS_OPTIONS: { value: LibraryStatus; label: string }[] = [
   { value: "watchlist", label: "Watchlist" },
@@ -99,12 +101,17 @@ function RatingInput({
 export default function LibraryPanel({
   tmdbId,
   item,
+  viewingCount,
+  today,
 }: {
   tmdbId: number;
   item: LibraryItemView | null;
+  viewingCount: number;
+  today: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  const [prompting, setPrompting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // Shows the new rating instantly; reverts automatically if the action fails
   const [rating, setOptimisticRating] = useOptimistic(
@@ -117,8 +124,21 @@ export default function LibraryPanel({
       optimistic?.();
       const res = await fn();
       if (!res.ok) setError(res.message);
-      else setConfirming(false);
+      else {
+        setConfirming(false);
+        setPrompting(false);
+      }
     });
+  }
+
+  function chooseStatus(status: LibraryStatus) {
+    setError("");
+    if (status === "watched") {
+      setPrompting(true); // rule 3c: ask "When did you watch it?" first
+      return;
+    }
+    setPrompting(false);
+    run(() => setStatusAction(tmdbId, status));
   }
 
   return (
@@ -143,7 +163,7 @@ export default function LibraryPanel({
               type="button"
               aria-pressed={active}
               disabled={pending || active}
-              onClick={() => run(() => setStatusAction(tmdbId, o.value))}
+              onClick={() => chooseStatus(o.value)}
               className={`rounded border px-3 py-1.5 text-sm disabled:cursor-default ${
                 active
                   ? "border-amber-500 bg-amber-500 font-medium text-black"
@@ -156,14 +176,30 @@ export default function LibraryPanel({
         })}
       </div>
 
-      {!item && (
+      {prompting && (
+        <ViewingForm
+          heading="When did you watch it?"
+          today={today}
+          initialDate={today}
+          submitLabel="Save viewing"
+          onCancel={() => setPrompting(false)}
+          onSkip={() => run(() => setStatusAction(tmdbId, "watched"))}
+          onSubmit={async (watchedOn, notes) => {
+            const res = await logViewingAction(tmdbId, watchedOn, notes);
+            if (res.ok) setPrompting(false);
+            return res;
+          }}
+        />
+      )}
+
+      {!item && !prompting && (
         <p className="mt-2 text-sm text-neutral-400">
           Not in your library yet. Pick a status to add it.
         </p>
       )}
-      {item?.status === "watched" && (
+      {item?.status === "watched" && viewingCount === 0 && (
         <p className="mt-2 text-sm text-neutral-400">
-          Recording the date you watched it comes in the next phase.
+          No viewing date recorded. You can add one below.
         </p>
       )}
 
@@ -221,27 +257,49 @@ export default function LibraryPanel({
             <div
               role="alertdialog"
               aria-label="Confirm removal"
-              className="flex flex-wrap items-center gap-3 text-sm"
+              className="space-y-3 text-sm"
             >
-              <span>
+              <p>
                 Remove this movie from your library? Your rating will be lost.
-              </span>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => run(() => removeAction(tmdbId))}
-                className="rounded bg-red-600 px-3 py-1 font-medium text-white disabled:opacity-60"
-              >
-                Yes, remove
-              </button>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => setConfirming(false)}
-                className="rounded border border-neutral-600 px-3 py-1"
-              >
-                Cancel
-              </button>
+              </p>
+              {viewingCount > 0 && (
+                <p className="text-neutral-400">
+                  You have {viewingCount} recorded{" "}
+                  {viewingCount === 1 ? "viewing" : "viewings"} of this movie.
+                  Your viewing history is kept unless you choose to delete it.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => run(() => removeAction(tmdbId, false))}
+                  className="rounded bg-red-600 px-3 py-1 font-medium text-white disabled:opacity-60"
+                >
+                  {viewingCount > 0
+                    ? "Remove from library only"
+                    : "Yes, remove"}
+                </button>
+                {viewingCount > 0 && (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => run(() => removeAction(tmdbId, true))}
+                    className="rounded border border-red-600 px-3 py-1 font-medium text-red-400 disabled:opacity-60"
+                  >
+                    Remove and delete {viewingCount}{" "}
+                    {viewingCount === 1 ? "viewing" : "viewings"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => setConfirming(false)}
+                  className="rounded border border-neutral-600 px-3 py-1"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </div>
