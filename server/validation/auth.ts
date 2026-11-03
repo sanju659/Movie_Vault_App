@@ -27,3 +27,17 @@ export const loginSchema = z.object({
   email,
   password: z.string().min(1, "Password is required").max(128),
 });
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password").max(128),
+    newPassword: z.string().min(10, "Use at least 10 characters").max(128),
+  })
+  .refine((d) => d.currentPassword !== d.newPassword, {
+    path: ["newPassword"],
+    message: "Choose a different password",
+  });
+
+export const deleteAccountSchema = z.object({
+  password: z.string().min(1, "Enter your password").max(128),
+});

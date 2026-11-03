@@ -22,6 +22,15 @@ export default async function Home() {
           Log in
         </Link>
       </div>
+      <p className="text-xs text-neutral-500">
+        <Link href="/privacy" className="underline">
+          Privacy
+        </Link>{" "}
+        ·{" "}
+        <Link href="/terms" className="underline">
+          Terms
+        </Link>
+      </p>
     </main>
   );
 }

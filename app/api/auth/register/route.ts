@@ -6,10 +6,12 @@ import { createSession } from "@/server/auth/session";
 import { assertSameOrigin, readJson } from "@/server/auth/origin";
 import { registerSchema } from "@/server/validation/auth";
 import { AppError, handle, isDuplicateKeyError } from "@/server/errors";
+import { clientIp, enforceRateLimit } from "@/server/services/rateLimit";
 
 export function POST(req: NextRequest) {
   return handle(async () => {
     assertSameOrigin(req);
+    await enforceRateLimit(`register:${clientIp(req)}`, 10, 3600); // 10 sign-ups per IP per hour
     const body = registerSchema.parse(await readJson(req));
 
     await connectDb();

@@ -21,6 +21,9 @@ export default function AppHeader({ userName }: { userName: string }) {
           <Link href="/history" className="hover:underline">
             History
           </Link>
+          <Link href="/settings/account" className="hover:underline">
+            Settings
+          </Link>
         </nav>
         <form action="/search" role="search" className="ml-auto w-full sm:w-64">
           <input

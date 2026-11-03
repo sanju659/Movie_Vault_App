@@ -103,9 +103,15 @@ export default function SignupForm() {
           />
           Show password
         </label>
-        <label className="flex items-center gap-2">
-          <input name="acceptedTerms" type="checkbox" /> I accept the terms and
-          privacy policy
+        <label className="flex items-center gap-2 text-sm">
+          <input name="acceptedTerms" type="checkbox" />I accept the{" "}
+          <Link href="/terms" target="_blank" className="underline">
+            terms
+          </Link>{" "}
+          and{" "}
+          <Link href="/privacy" target="_blank" className="underline">
+            privacy policy
+          </Link>
         </label>
         {err("acceptedTerms")}
         {message && (

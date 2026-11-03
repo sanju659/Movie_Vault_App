@@ -8,6 +8,7 @@ export class AppError extends Error {
     public code: string,
     message: string,
     public fieldErrors?: Record<string, string>,
+    public retryAfter?: number, // seconds, sent as a Retry-After header
   ) {
     super(message);
     this.name = "AppError";
@@ -24,9 +25,15 @@ export function errorResponse(err: unknown) {
           fieldErrors: err.fieldErrors,
         },
       },
-      { status: err.status },
+      {
+        status: err.status,
+        headers: err.retryAfter
+          ? { "Retry-After": String(err.retryAfter) }
+          : undefined,
+      },
     );
   }
+
   if (err instanceof ZodError) {
     const fieldErrors: Record<string, string> = {};
     for (const issue of err.issues) {
