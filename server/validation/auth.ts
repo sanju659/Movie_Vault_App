@@ -6,7 +6,7 @@ const email = z
   .toLowerCase()
   .pipe(z.email("Enter a valid email address"));
 
-const timezone = z.string().refine((tz) => {
+export const timezoneSchema = z.string().refine((tz) => {
   try {
     new Intl.DateTimeFormat("en", { timeZone: tz });
     return true;
@@ -19,7 +19,7 @@ export const registerSchema = z.object({
   displayName: z.string().trim().min(1, "Display name is required").max(50),
   email,
   password: z.string().min(10, "Use at least 10 characters").max(128),
-  timezone: timezone.default("UTC"),
+  timezone: timezoneSchema.default("UTC"),
   acceptedTerms: z.literal(true, { error: "You must accept the terms" }),
 });
 
@@ -40,4 +40,8 @@ export const changePasswordSchema = z
 
 export const deleteAccountSchema = z.object({
   password: z.string().min(1, "Enter your password").max(128),
+});
+
+export const updateProfileSchema = z.object({
+  timezone: timezoneSchema,
 });
