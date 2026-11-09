@@ -58,4 +58,6 @@ export type PersonDetails = {
   placeOfBirth: string | null;
   acted: MovieSummary[];
   directed: MovieSummary[];
+  actedTv: MovieSummary[]; // series they acted in
+  created: MovieSummary[]; // series they created
 };

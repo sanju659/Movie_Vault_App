@@ -101,6 +101,10 @@ export type RawPersonDetails = RawPerson & {
     cast?: RawMovie[];
     crew?: (RawMovie & { job?: string })[];
   };
+  tv_credits?: {
+    cast?: RawTv[];
+    crew?: (RawTv & { job?: string })[];
+  };
 };
 
 export function mapPersonSummary(r: RawPerson): PersonSummary {
@@ -116,25 +120,37 @@ export function mapPersonSummary(r: RawPerson): PersonSummary {
   };
 }
 
-// Drops adult titles and duplicate credits for the same movie
-function dedupe<T extends RawMovie>(list: T[]): T[] {
+// Drops adult titles and duplicate credits for the same title
+function dedupe<T extends { id: number; adult?: boolean }>(list: T[]): T[] {
   const seen = new Set<number>();
   return list.filter((m) => !m.adult && !seen.has(m.id) && seen.add(m.id));
 }
-const byPopularity = (a: RawMovie, b: RawMovie) =>
+const byPopularity = (a: { popularity?: number }, b: { popularity?: number }) =>
   (b.popularity ?? 0) - (a.popularity ?? 0);
 const byNewest = (a: RawMovie, b: RawMovie) =>
   (b.release_date || "").localeCompare(a.release_date || ""); // undated last
+const byNewestTv = (a: RawTv, b: RawTv) =>
+  (b.first_air_date || "").localeCompare(a.first_air_date || "");
 
 export function mapPersonDetails(r: RawPersonDetails): PersonDetails {
   const acted = dedupe(r.movie_credits?.cast ?? [])
-    .sort(byPopularity)
+    .sort(byPopularity) // best-known roles first
     .map(mapSummary);
   const directed = dedupe(
     (r.movie_credits?.crew ?? []).filter((c) => c.job === "Director"),
   )
     .sort(byNewest)
     .map(mapSummary);
+
+  const actedTv = dedupe(r.tv_credits?.cast ?? [])
+    .sort(byPopularity)
+    .map((t) => mapTvSummary(t));
+  // TMDB lists series creators as crew with the job "Creator"
+  const created = dedupe(
+    (r.tv_credits?.crew ?? []).filter((c) => c.job === "Creator"),
+  )
+    .sort(byNewestTv)
+    .map((t) => mapTvSummary(t));
 
   return {
     id: r.id,
@@ -146,6 +162,8 @@ export function mapPersonDetails(r: RawPersonDetails): PersonDetails {
     placeOfBirth: r.place_of_birth || null,
     acted,
     directed,
+    actedTv,
+    created,
   };
 }
 
@@ -156,6 +174,8 @@ type RawTv = {
   name?: string;
   poster_path?: string | null;
   first_air_date?: string | null;
+  adult?: boolean;
+  popularity?: number;
 };
 
 export type RawTvList = {

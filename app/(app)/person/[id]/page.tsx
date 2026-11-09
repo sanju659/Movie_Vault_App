@@ -5,9 +5,9 @@ import { TmdbError } from "@/server/services/tmdb/client";
 import PersonPhoto from "@/components/PersonPhoto";
 import MovieGrid from "@/components/MovieGrid";
 import ErrorState from "@/components/ErrorState";
+import PageNumbers from "@/components/PageNumbers";
 import { formatWatchedOn } from "@/lib/dates";
 import type { MovieSummary, PersonDetails } from "@/lib/movie-types";
-import PageNumbers from "@/components/PageNumbers";
 
 export const metadata = { title: "Person" };
 
@@ -18,7 +18,16 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type Pages = { acted: number; directed: number };
+type SectionKey = "acted" | "actedTv" | "directed" | "created";
+type Pages = Record<SectionKey, number>;
+
+// Each section keeps its own page number in the URL
+const PAGE_PARAM: Record<SectionKey, string> = {
+  acted: "actedPage",
+  actedTv: "actedTvPage",
+  directed: "directedPage",
+  created: "createdPage",
+};
 
 // A bad value in the URL falls back to page 1 instead of erroring
 function pageParam(v: string | string[] | undefined) {
@@ -28,11 +37,14 @@ function pageParam(v: string | string[] | undefined) {
 
 function href(id: string, pages: Pages, hash: string) {
   const sp = new URLSearchParams();
-  if (pages.acted > 1) sp.set("actedPage", String(pages.acted));
-  if (pages.directed > 1) sp.set("directedPage", String(pages.directed));
+  (Object.keys(pages) as SectionKey[]).forEach((k) => {
+    if (pages[k] > 1) sp.set(PAGE_PARAM[k], String(pages[k]));
+  });
   const s = sp.toString();
   return `/person/${id}${s ? `?${s}` : ""}#${hash}`;
 }
+
+const totalPagesOf = (n: number) => Math.max(1, Math.ceil(n / PAGE_SIZE));
 
 export default async function PersonPage({ params, searchParams }: Props) {
   await requireUserOrRedirect();
@@ -40,10 +52,6 @@ export default async function PersonPage({ params, searchParams }: Props) {
   if (!/^\d{1,9}$/.test(id) || Number(id) < 1) notFound();
 
   const sp = await searchParams;
-  const requested: Pages = {
-    acted: pageParam(sp.actedPage),
-    directed: pageParam(sp.directedPage),
-  };
 
   let person: PersonDetails;
   try {
@@ -56,22 +64,29 @@ export default async function PersonPage({ params, searchParams }: Props) {
     );
   }
 
-  type Section = { key: keyof Pages; title: string; all: MovieSummary[] };
-  const sections: Section[] = [
-    { key: "acted", title: "Acted in", all: person.acted },
-    { key: "directed", title: "Directed", all: person.directed },
+  type Section = { key: SectionKey; title: string; all: MovieSummary[] };
+  const acting: Section[] = [
+    { key: "acted", title: "Acted in (movies)", all: person.acted },
+    { key: "actedTv", title: "Acted in (TV series)", all: person.actedTv },
   ];
-  if (person.knownForDepartment === "Directing") sections.reverse(); // lead with what they're known for
+  const making: Section[] = [
+    { key: "created", title: "Created (TV series)", all: person.created },
+    { key: "directed", title: "Directed (movies)", all: person.directed },
+  ];
+  // Lead with what they're known for
+  const actingFirst =
+    person.knownForDepartment === "Acting" || !person.knownForDepartment;
+  const sections = actingFirst
+    ? [...acting, ...making]
+    : [...making, ...acting];
 
   // Clamp each page to what exists (a stale link past the last page shows the last page)
-  const totalPagesOf = (n: number) => Math.max(1, Math.ceil(n / PAGE_SIZE));
-  const current: Pages = {
-    acted: Math.min(requested.acted, totalPagesOf(person.acted.length)),
-    directed: Math.min(
-      requested.directed,
-      totalPagesOf(person.directed.length),
-    ),
-  };
+  const current = Object.fromEntries(
+    sections.map((s) => [
+      s.key,
+      Math.min(pageParam(sp[PAGE_PARAM[s.key]]), totalPagesOf(s.all.length)),
+    ]),
+  ) as Pages;
 
   const birthday =
     person.birthday && /^\d{4}-\d{2}-\d{2}$/.test(person.birthday)
@@ -113,7 +128,7 @@ export default async function PersonPage({ params, searchParams }: Props) {
 
       {!hasCredits && (
         <p className="mt-8 text-neutral-400">
-          No movie credits found for {person.name}. TV credits aren’t shown yet.
+          No movie or TV credits found for {person.name}.
         </p>
       )}
 

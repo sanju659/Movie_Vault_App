@@ -179,7 +179,7 @@ export async function searchPeople(
 export async function getPerson(id: number): Promise<PersonDetails> {
   const raw = await tmdbFetch<RawPersonDetails>(
     `/person/${id}`,
-    { append_to_response: "movie_credits", language: "en-US" },
+    { append_to_response: "movie_credits,tv_credits", language: "en-US" },
     { revalidate: 24 * HOUR },
   );
   return mapPersonDetails(raw);
