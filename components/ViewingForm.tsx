@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import type { ActionResult } from "@/app/(app)/movie/[tmdbId]/actions";
+import type { ActionResult } from "@/server/actions/library";
 
 export default function ViewingForm({
   heading,

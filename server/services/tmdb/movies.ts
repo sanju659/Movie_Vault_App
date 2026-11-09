@@ -9,6 +9,7 @@ import type {
   PersonSearchResult,
   SearchResult,
 } from "@/lib/movie-types";
+import type { MediaType } from "@/lib/media";
 import type { DiscoverSort } from "@/lib/search";
 import { TmdbError, tmdbFetch } from "./client";
 import {
@@ -16,50 +17,79 @@ import {
   mapPersonDetails,
   mapPersonSummary,
   mapSummary,
+  mapTvDetails,
+  mapTvSummary,
   type RawDetails,
   type RawList,
   type RawPersonDetails,
   type RawPersonList,
+  type RawTvDetails,
+  type RawTvList,
 } from "./mappers";
 
 const HOUR = 60 * 60;
 
-async function list(path: string): Promise<MovieSummary[]> {
-  const raw = await tmdbFetch<RawList>(
-    path,
-    { language: "en-US", page: 1 },
-    { revalidate: HOUR },
-  );
-  return (raw.results ?? []).map(mapSummary);
+type RawAnyList = RawList | RawTvList;
+
+function mapList(mediaType: MediaType, raw: RawAnyList): MovieSummary[] {
+  return mediaType === "tv"
+    ? ((raw as RawTvList).results ?? []).map(mapTvSummary)
+    : ((raw as RawList).results ?? []).map(mapSummary);
 }
 
-export const getTrending = () => list("/trending/movie/week");
-export const getPopular = () => list("/movie/popular");
-export const getTopRated = () => list("/movie/top_rated");
-export const getUpcoming = () => list("/movie/upcoming");
-
-function toSearchResult(raw: RawList, page: number): SearchResult {
+function toSearchResult(
+  mediaType: MediaType,
+  raw: RawAnyList,
+  page: number,
+): SearchResult {
   return {
-    results: (raw.results ?? []).map(mapSummary),
+    results: mapList(mediaType, raw),
     page: raw.page ?? page,
     totalPages: Math.min(raw.total_pages ?? 1, 500), // TMDB caps pages at 500
     totalResults: raw.total_results ?? 0,
   };
 }
 
-export async function searchMovies(
+async function list(
+  mediaType: MediaType,
+  path: string,
+): Promise<MovieSummary[]> {
+  const raw = await tmdbFetch<RawAnyList>(
+    path,
+    { language: "en-US", page: 1 },
+    { revalidate: HOUR },
+  );
+  return mapList(mediaType, raw);
+}
+
+export const getTrending = () => list("movie", "/trending/movie/week");
+export const getPopular = () => list("movie", "/movie/popular");
+export const getTopRated = () => list("movie", "/movie/top_rated");
+export const getUpcoming = () => list("movie", "/movie/upcoming");
+
+export const getTrendingTv = () => list("tv", "/trending/tv/week");
+export const getPopularTv = () => list("tv", "/tv/popular");
+export const getTopRatedTv = () => list("tv", "/tv/top_rated");
+
+export async function searchTitles(
+  mediaType: MediaType,
   query: string,
   page: number,
   year?: number,
 ): Promise<SearchResult> {
-  const raw = await tmdbFetch<RawList>("/search/movie", {
-    query,
-    page,
-    include_adult: false,
-    language: "en-US",
-    primary_release_year: year, // undefined is skipped by tmdbFetch
-  });
-  return toSearchResult(raw, page);
+  const raw = await tmdbFetch<RawAnyList>(
+    mediaType === "tv" ? "/search/tv" : "/search/movie",
+    {
+      query,
+      page,
+      include_adult: false,
+      language: "en-US",
+      ...(mediaType === "tv"
+        ? { first_air_date_year: year }
+        : { primary_release_year: year }),
+    },
+  );
+  return toSearchResult(mediaType, raw, page);
 }
 
 export type DiscoverFilters = {
@@ -71,17 +101,26 @@ export type DiscoverFilters = {
   page: number;
 };
 
-const DISCOVER_SORT: Record<DiscoverSort, string> = {
-  popularity: "popularity.desc",
-  release: "primary_release_date.desc",
-  rating: "vote_average.desc",
+const DISCOVER_SORT: Record<MediaType, Record<DiscoverSort, string>> = {
+  movie: {
+    popularity: "popularity.desc",
+    release: "primary_release_date.desc",
+    rating: "vote_average.desc",
+  },
+  tv: {
+    popularity: "popularity.desc",
+    release: "first_air_date.desc",
+    rating: "vote_average.desc",
+  },
 };
 
 /** Browse by filters (no title). TMDB can't combine these with a title search. */
-export async function discoverMovies(
+export async function discoverTitles(
+  mediaType: MediaType,
   f: DiscoverFilters,
 ): Promise<SearchResult> {
-  // Without a vote floor, a movie with a single 10/10 vote tops the rating sort
+  const isTv = mediaType === "tv";
+  // Without a vote floor, a title with a single 10/10 vote tops the rating sort
   const voteFloor =
     f.sort === "rating"
       ? 200
@@ -90,29 +129,32 @@ export async function discoverMovies(
         : f.sort === "release"
           ? 5
           : undefined;
+  // Newest-first would otherwise start with unreleased titles
+  const notAfter =
+    f.sort === "release" ? new Date().toISOString().slice(0, 10) : undefined;
 
-  const raw = await tmdbFetch<RawList>(
-    "/discover/movie",
+  const raw = await tmdbFetch<RawAnyList>(
+    isTv ? "/discover/tv" : "/discover/movie",
     {
       include_adult: false,
-      include_video: false,
       language: "en-US",
       page: f.page,
-      sort_by: DISCOVER_SORT[f.sort],
+      sort_by: DISCOVER_SORT[mediaType][f.sort],
       with_genres: f.genre,
-      primary_release_year: f.year,
       "vote_average.gte": f.minRating,
       "vote_count.gte": voteFloor,
       with_original_language: f.language,
-      // Newest-first would otherwise start with unreleased titles
-      "primary_release_date.lte":
-        f.sort === "release"
-          ? new Date().toISOString().slice(0, 10)
-          : undefined,
+      ...(isTv
+        ? { first_air_date_year: f.year, "first_air_date.lte": notAfter }
+        : {
+            include_video: false,
+            primary_release_year: f.year,
+            "primary_release_date.lte": notAfter,
+          }),
     },
     { revalidate: HOUR },
   );
-  return toSearchResult(raw, f.page);
+  return toSearchResult(mediaType, raw, f.page);
 }
 
 export async function searchPeople(
@@ -143,24 +185,39 @@ export async function getPerson(id: number): Promise<PersonDetails> {
   return mapPersonDetails(raw);
 }
 
-export async function getMovieDetails(tmdbId: number): Promise<MovieDetails> {
+/** Details + credits for a movie or a series, through the shared Mongo cache. */
+export async function getMediaDetails(
+  mediaType: MediaType,
+  tmdbId: number,
+): Promise<MovieDetails> {
   await connectDb();
-  const cached = await TmdbCache.findOne({ mediaType: "movie", tmdbId }).lean();
+  const cached = await TmdbCache.findOne({ mediaType, tmdbId }).lean();
   const maxAgeMs = getEnv().TMDB_DETAILS_TTL_DAYS * 24 * 60 * 60 * 1000;
+  // Entries cached before TV support have no mediaType field, so always set it
+  const fromCache = () => ({ ...(cached!.data as MovieDetails), mediaType });
 
   if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < maxAgeMs) {
-    return cached.data as MovieDetails;
+    return fromCache();
   }
 
   try {
-    const raw = await tmdbFetch<RawDetails>(`/movie/${tmdbId}`, {
-      append_to_response: "credits",
-      language: "en-US",
-    });
-    const data = mapDetails(raw);
+    const data =
+      mediaType === "tv"
+        ? mapTvDetails(
+            await tmdbFetch<RawTvDetails>(`/tv/${tmdbId}`, {
+              append_to_response: "aggregate_credits",
+              language: "en-US",
+            }),
+          )
+        : mapDetails(
+            await tmdbFetch<RawDetails>(`/movie/${tmdbId}`, {
+              append_to_response: "credits",
+              language: "en-US",
+            }),
+          );
     try {
       await TmdbCache.updateOne(
-        { mediaType: "movie", tmdbId },
+        { mediaType, tmdbId },
         { $set: { data, fetchedAt: new Date() } },
         { upsert: true },
       );
@@ -170,7 +227,10 @@ export async function getMovieDetails(tmdbId: number): Promise<MovieDetails> {
     return data;
   } catch (err) {
     if (err instanceof TmdbError && err.status === 404) throw err;
-    if (cached) return cached.data as MovieDetails; // TMDB down: serve the stale copy
+    if (cached) return fromCache(); // TMDB down: serve the stale copy
     throw err;
   }
 }
+
+export const getMovieDetails = (tmdbId: number) =>
+  getMediaDetails("movie", tmdbId);

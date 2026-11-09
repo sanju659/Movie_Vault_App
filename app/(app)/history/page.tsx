@@ -7,6 +7,7 @@ import { releaseYear } from "@/lib/tmdb";
 import type { HistoryEntry } from "@/lib/watch-types";
 import MoviePoster from "@/components/MoviePoster";
 import ViewingEntry from "@/components/ViewingEntry";
+import { mediaPath } from "@/lib/media";
 
 export const metadata = { title: "Watch History" };
 
@@ -74,7 +75,7 @@ export default async function HistoryPage({ searchParams }: Props) {
                 {entries.map((e) => (
                   <li key={e.id} className="flex gap-4">
                     <div className="w-16 shrink-0">
-                      <Link href={`/movie/${e.tmdbId}`}>
+                      <Link href={mediaPath(e.mediaType, e.tmdbId)}>
                         <MoviePoster
                           path={e.posterPath}
                           title={e.title}
@@ -84,11 +85,16 @@ export default async function HistoryPage({ searchParams }: Props) {
                     </div>
                     <div className="min-w-0">
                       <Link
-                        href={`/movie/${e.tmdbId}`}
+                        href={mediaPath(e.mediaType, e.tmdbId)}
                         className="font-medium hover:underline"
                       >
                         {e.title}
                       </Link>
+                      {e.mediaType === "tv" && (
+                        <span className="ml-2 rounded bg-neutral-800 px-1.5 py-0.5 text-xs">
+                          Series
+                        </span>
+                      )}
                       <span className="text-sm text-neutral-400">
                         {" "}
                         {releaseYear(e.releaseDate) ?? ""}

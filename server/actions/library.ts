@@ -11,6 +11,7 @@ import {
   updateEvent,
 } from "@/server/services/watchEvents";
 import {
+  mediaTypeSchema,
   ratingSchema,
   statusSchema,
   tmdbIdSchema,
@@ -26,6 +27,7 @@ async function run(fn: () => Promise<unknown>): Promise<ActionResult> {
   try {
     await fn();
     revalidatePath("/movie/[tmdbId]", "page");
+    revalidatePath("/tv/[tmdbId]", "page");
     revalidatePath("/dashboard");
     revalidatePath("/history");
     revalidatePath("/collection", "layout");
@@ -38,55 +40,63 @@ async function run(fn: () => Promise<unknown>): Promise<ActionResult> {
 }
 
 export async function setStatusAction(
+  mediaType: string,
   tmdbId: number,
   status: string,
 ): Promise<ActionResult> {
+  const mt = mediaTypeSchema.safeParse(mediaType);
   const id = tmdbIdSchema.safeParse(tmdbId);
   const st = statusSchema.safeParse(status);
-  if (!id.success || !st.success) return INVALID;
+  if (!mt.success || !id.success || !st.success) return INVALID;
 
   return run(async () => {
     const user = await requireUser(); // userId always comes from the session, never the client
-    await setStatus(user.id, id.data, st.data);
+    await setStatus(user.id, mt.data, id.data, st.data);
   });
 }
 
 export async function setRatingAction(
+  mediaType: string,
   tmdbId: number,
   rating: number | null,
 ): Promise<ActionResult> {
+  const mt = mediaTypeSchema.safeParse(mediaType);
   const id = tmdbIdSchema.safeParse(tmdbId);
   const r = ratingSchema.safeParse(rating);
-  if (!id.success || !r.success) return INVALID;
+  if (!mt.success || !id.success || !r.success) return INVALID;
 
   return run(async () => {
     const user = await requireUser();
-    await setRating(user.id, id.data, r.data);
+    await setRating(user.id, mt.data, id.data, r.data);
   });
 }
 
 export async function removeAction(
+  mediaType: string,
   tmdbId: number,
   deleteEvents: boolean,
 ): Promise<ActionResult> {
+  const mt = mediaTypeSchema.safeParse(mediaType);
   const id = tmdbIdSchema.safeParse(tmdbId);
   const del = z.boolean().safeParse(deleteEvents);
-  if (!id.success || !del.success) return INVALID;
+  if (!mt.success || !id.success || !del.success) return INVALID;
 
   return run(async () => {
     const user = await requireUser();
-    await removeItem(user.id, id.data, del.data);
+    await removeItem(user.id, mt.data, id.data, del.data);
   });
 }
 
 export async function logViewingAction(
+  mediaType: string,
   tmdbId: number,
   watchedOn: string,
   notes: string,
 ): Promise<ActionResult> {
+  const mt = mediaTypeSchema.safeParse(mediaType);
   const id = tmdbIdSchema.safeParse(tmdbId);
   const input = eventInputSchema.safeParse({ watchedOn, notes });
-  if (!id.success) return INVALID;
+  if (!mt.success || !id.success) return INVALID;
   if (!input.success)
     return {
       ok: false,
@@ -95,7 +105,7 @@ export async function logViewingAction(
 
   return run(async () => {
     const user = await requireUser();
-    await logViewing(user, id.data, input.data);
+    await logViewing(user, mt.data, id.data, input.data);
   });
 }
 

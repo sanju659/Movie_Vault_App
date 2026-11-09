@@ -1,16 +1,17 @@
 import Link from "next/link";
 import { requireUserOrRedirect } from "@/server/auth/session";
 import {
-  discoverMovies,
-  searchMovies,
+  discoverTitles,
   searchPeople,
+  searchTitles,
 } from "@/server/services/tmdb/movies";
 import { parseSearchQuery, type SearchQuery } from "@/server/validation/search";
 import MovieGrid from "@/components/MovieGrid";
 import PersonCard from "@/components/PersonCard";
 import ErrorState from "@/components/ErrorState";
-import { GENRE_NAMES } from "@/lib/genres";
+import { genresFor } from "@/lib/genres";
 import { LANGUAGES } from "@/lib/languages";
+import type { MediaType } from "@/lib/media";
 import {
   DISCOVER_SORTS,
   MIN_RATING_OPTIONS,
@@ -18,6 +19,7 @@ import {
   SORT_LABELS,
   maxYear,
   splitTrailingYear,
+  type SearchType,
 } from "@/lib/search";
 import type { PersonSearchResult, SearchResult } from "@/lib/movie-types";
 
@@ -27,9 +29,17 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const GENRES = Object.entries(GENRE_NAMES)
-  .map(([id, name]) => ({ id: Number(id), name }))
-  .sort((a, b) => a.name.localeCompare(b.name));
+const TABS: { type: SearchType; label: string }[] = [
+  { type: "movies", label: "Movies" },
+  { type: "tv", label: "TV series" },
+  { type: "people", label: "People (actors & directors)" },
+];
+
+const TITLE_LABEL: Record<SearchType, string> = {
+  movies: "Movie title",
+  tv: "Series title",
+  people: "Actor or director",
+};
 
 function href(p: Partial<SearchQuery>) {
   const sp = new URLSearchParams();
@@ -52,36 +62,44 @@ export default async function SearchPage({ searchParams }: Props) {
   const query = parseSearchQuery(await searchParams);
   const { type, q, year, genre, rating, lang, sort, page } = query;
 
-  const isMovies = type === "movies";
+  const media: MediaType | null =
+    type === "movies" ? "movie" : type === "tv" ? "tv" : null;
   const hasBrowseFilters = Boolean(
     genre || rating || lang || sort !== "popularity",
   );
-  const browsing = isMovies && !q && Boolean(year || hasBrowseFilters);
-  const ignoredFilters = isMovies && Boolean(q) && hasBrowseFilters;
+  const browsing = media !== null && !q && Boolean(year || hasBrowseFilters);
+  const ignoredFilters = media !== null && Boolean(q) && hasBrowseFilters;
+  const noun =
+    type === "movies" ? "movies" : type === "tv" ? "series" : "people";
 
-  let movies: SearchResult | null = null;
+  let titles: SearchResult | null = null;
   let people: PersonSearchResult | null = null;
   let note: string | null = null;
   let failed = false;
 
   try {
-    if (!isMovies) {
+    if (!media) {
       if (q) people = await searchPeople(q, page);
     } else if (q) {
-      movies = await searchMovies(q, page, year);
+      titles = await searchTitles(media, q, page, year);
       // "alien 1979": if the full text finds nothing, retry as title + year
-      if (movies.results.length === 0 && !year) {
+      if (titles.results.length === 0 && !year) {
         const split = splitTrailingYear(q);
         if (split) {
-          const retry = await searchMovies(split.title, page, split.year);
+          const retry = await searchTitles(
+            media,
+            split.title,
+            page,
+            split.year,
+          );
           if (retry.results.length > 0) {
-            movies = retry;
-            note = `No exact matches for “${q}”. Showing “${split.title}” released in ${split.year}.`;
+            titles = retry;
+            note = `No exact matches for “${q}”. Showing “${split.title}” from ${split.year}.`;
           }
         }
       }
     } else if (browsing) {
-      movies = await discoverMovies({
+      titles = await discoverTitles(media, {
         genre,
         year,
         minRating: rating,
@@ -95,7 +113,7 @@ export default async function SearchPage({ searchParams }: Props) {
     failed = true;
   }
 
-  const paging = movies ?? people;
+  const paging = titles ?? people;
   const canReset = Boolean(q || year || hasBrowseFilters);
   const nothingYet = !q && !browsing;
   const empty = !failed && paging && paging.results.length === 0;
@@ -104,19 +122,19 @@ export default async function SearchPage({ searchParams }: Props) {
     <div>
       <h1 className="mb-4 text-2xl font-semibold">Search</h1>
 
-      <nav aria-label="Search type" className="mb-4 flex gap-2">
-        {(["movies", "people"] as const).map((t) => (
+      <nav aria-label="Search type" className="mb-4 flex flex-wrap gap-2">
+        {TABS.map((t) => (
           <Link
-            key={t}
-            href={href({ type: t, q })}
-            aria-current={t === type ? "page" : undefined}
+            key={t.type}
+            href={href({ type: t.type, q })}
+            aria-current={t.type === type ? "page" : undefined}
             className={`rounded border px-3 py-1.5 text-sm ${
-              t === type
+              t.type === type
                 ? "border-amber-500 bg-amber-500 font-medium text-black"
                 : "border-neutral-600 hover:border-neutral-400"
             }`}
           >
-            {t === "movies" ? "Movies" : "People (actors & directors)"}
+            {t.label}
           </Link>
         ))}
       </nav>
@@ -126,26 +144,26 @@ export default async function SearchPage({ searchParams }: Props) {
         role="search"
         className="mb-4 flex flex-wrap items-end gap-3"
       >
-        {!isMovies && <input type="hidden" name="type" value="people" />}
+        {type !== "movies" && <input type="hidden" name="type" value={type} />}
 
         <label className="text-sm">
-          <span className="block text-neutral-400">
-            {isMovies ? "Movie title" : "Actor or director"}
-          </span>
+          <span className="block text-neutral-400">{TITLE_LABEL[type]}</span>
           <input
             name="q"
             type="search"
             defaultValue={q ?? ""}
             maxLength={100}
-            placeholder={isMovies ? "Search by title…" : "Search by name…"}
+            placeholder={media ? "Search by title…" : "Search by name…"}
             className={`${control} w-60`}
           />
         </label>
 
-        {isMovies && (
+        {media && (
           <>
             <label className="text-sm">
-              <span className="block text-neutral-400">Release year</span>
+              <span className="block text-neutral-400">
+                {media === "tv" ? "First air year" : "Release year"}
+              </span>
               <input
                 name="year"
                 type="number"
@@ -166,7 +184,7 @@ export default async function SearchPage({ searchParams }: Props) {
                 className={control}
               >
                 <option value="">Any genre</option>
-                {GENRES.map((g) => (
+                {genresFor(media).map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name}
                   </option>
@@ -227,7 +245,7 @@ export default async function SearchPage({ searchParams }: Props) {
         )}
       </form>
 
-      {isMovies && (
+      {media && (
         <p className="mb-6 text-xs text-neutral-500">
           Year works with a title. Genre, rating, language and sort apply when
           the title is empty, because TMDB can’t combine them with a title
@@ -249,8 +267,8 @@ export default async function SearchPage({ searchParams }: Props) {
 
       {nothingYet && !failed && (
         <p className="text-neutral-400">
-          {isMovies
-            ? "Type a title, or pick a year, genre or other filter to browse movies."
+          {media
+            ? `Type a title, or pick a year, genre or other filter to browse ${noun}.`
             : "Type the name of an actor or director."}
         </p>
       )}
@@ -263,8 +281,8 @@ export default async function SearchPage({ searchParams }: Props) {
         <div className="rounded-lg border border-neutral-800 p-6">
           <p className="text-neutral-300">
             {q
-              ? `No ${isMovies ? "movies" : "people"} found for “${q}”${year ? ` in ${year}` : ""}.`
-              : "No movies match those filters."}
+              ? `No ${noun} found for “${q}”${year ? ` in ${year}` : ""}.`
+              : `No ${noun} match those filters.`}
           </p>
           <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-neutral-400">
             <li>Check the spelling, or try fewer words.</li>
@@ -274,27 +292,45 @@ export default async function SearchPage({ searchParams }: Props) {
                 year.
               </li>
             )}
-            {isMovies && (
-              <li>Looking for an actor or director? Use the People tab.</li>
-            )}
-            {isMovies && (
+            {q && type === "movies" && (
               <li>
-                TV series (for example Money Heist) aren’t supported yet. Movies
-                only for now.
+                Looking for a series?{" "}
+                <Link href={href({ type: "tv", q })} className="underline">
+                  Search TV series
+                </Link>
+                .
+              </li>
+            )}
+            {q && type === "tv" && (
+              <li>
+                Looking for a film?{" "}
+                <Link href={href({ type: "movies", q })} className="underline">
+                  Search movies
+                </Link>
+                .
+              </li>
+            )}
+            {q && type !== "people" && (
+              <li>
+                Looking for an actor or director?{" "}
+                <Link href={href({ type: "people", q })} className="underline">
+                  Search people
+                </Link>
+                .
               </li>
             )}
           </ul>
         </div>
       )}
 
-      {movies && movies.results.length > 0 && (
+      {titles && titles.results.length > 0 && (
         <>
           <p className="mb-4 text-sm text-neutral-400">
             {q
-              ? `${movies.totalResults.toLocaleString()} results for “${q}”`
-              : `${movies.totalResults.toLocaleString()} movies match your filters`}
+              ? `${titles.totalResults.toLocaleString()} results for “${q}”`
+              : `${titles.totalResults.toLocaleString()} ${noun} match your filters`}
           </p>
-          <MovieGrid movies={movies.results} />
+          <MovieGrid movies={titles.results} />
         </>
       )}
 

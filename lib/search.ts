@@ -1,4 +1,4 @@
-export const SEARCH_TYPES = ["movies", "people"] as const;
+export const SEARCH_TYPES = ["movies", "tv", "people"] as const;
 export type SearchType = (typeof SEARCH_TYPES)[number];
 
 export const DISCOVER_SORTS = ["popularity", "release", "rating"] as const;

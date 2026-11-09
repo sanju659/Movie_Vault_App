@@ -3,10 +3,14 @@ import { Types, type PipelineStage } from "mongoose";
 import { getEnv } from "@/server/env";
 import { connectDb } from "@/server/db";
 import { LibraryItem, type LibraryItemDoc } from "@/server/models/LibraryItem";
-import { getMovieDetails } from "@/server/services/tmdb/movies";
+import { WatchEvent } from "@/server/models/WatchEvent";
+import { getMediaDetails } from "@/server/services/tmdb/movies";
 import { TmdbError } from "@/server/services/tmdb/client";
 import { AppError, isDuplicateKeyError } from "@/server/errors";
+import { GENRE_NAMES } from "@/lib/genres";
+import type { MediaType } from "@/lib/media";
 import type { MovieDetails } from "@/lib/movie-types";
+import type { ListQuery } from "@/server/validation/library";
 import type {
   LibraryCounts,
   LibraryItemView,
@@ -14,17 +18,14 @@ import type {
   LibrarySort,
   LibraryStatus,
 } from "@/lib/library-types";
-import { GENRE_NAMES } from "@/lib/genres";
-import type { ListQuery } from "@/server/validation/library";
-import { WatchEvent } from "@/server/models/WatchEvent";
 
 const PAGE_SIZE = 24;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const oid = (id: string) => new Types.ObjectId(id);
-const scope = (userId: string, tmdbId: number) => ({
+const scope = (userId: string, mediaType: MediaType, tmdbId: number) => ({
   userId: oid(userId),
-  mediaType: "movie" as const,
+  mediaType,
   tmdbId,
 });
 
@@ -33,7 +34,7 @@ function buildSnapshot(d: MovieDetails): LibraryItemDoc["snapshot"] {
     title: d.title,
     posterPath: d.posterPath,
     releaseDate: d.releaseDate,
-    runtimeMinutes: d.runtimeMinutes,
+    runtimeMinutes: d.runtimeMinutes, // null for series
     genreIds: d.genres.map((g) => g.id),
     snapshotAt: new Date(),
   };
@@ -46,12 +47,12 @@ function isStale(snapshotAt: Date) {
   );
 }
 
-async function loadDetails(tmdbId: number) {
+async function loadDetails(mediaType: MediaType, tmdbId: number) {
   try {
-    return await getMovieDetails(tmdbId);
+    return await getMediaDetails(mediaType, tmdbId);
   } catch (err) {
     if (err instanceof TmdbError && err.status === 404) {
-      throw new AppError(404, "MOVIE_NOT_FOUND", "That movie does not exist.");
+      throw new AppError(404, "TITLE_NOT_FOUND", "That title does not exist.");
     }
     throw err;
   }
@@ -59,6 +60,7 @@ async function loadDetails(tmdbId: number) {
 
 function toView(doc: LibraryItemDoc): LibraryItemView {
   return {
+    mediaType: doc.mediaType,
     tmdbId: doc.tmdbId,
     status: doc.status,
     personalRating: doc.personalRating ?? null,
@@ -74,36 +76,40 @@ function toView(doc: LibraryItemDoc): LibraryItemView {
 
 export async function getItem(
   userId: string,
+  mediaType: MediaType,
   tmdbId: number,
 ): Promise<LibraryItemView | null> {
   await connectDb();
   const doc = await LibraryItem.findOne(
-    scope(userId, tmdbId),
+    scope(userId, mediaType, tmdbId),
   ).lean<LibraryItemDoc>();
   return doc ? toView(doc) : null;
 }
 
 /**
- * Add a movie to the library, or change the status of an existing item.
+ * Add a title to the library, or change the status of an existing item.
  *
- * Phase 4 note: when status becomes 'watched', the status/event sync service
- * (rule 5.3.3) will wrap this function and also create the viewing event.
- * Keep all status changes going through here so there is one place to hook in.
+ * Status changes to 'watched' with a date go through logViewing() in
+ * watchEvents.ts (rule 5.3.3), which calls this function. Choosing "skip date"
+ * in the UI calls this directly, so a title can be Watched with no viewing.
  */
 export async function setStatus(
   userId: string,
+  mediaType: MediaType,
   tmdbId: number,
   status: LibraryStatus,
 ): Promise<LibraryItemView> {
   await connectDb();
-  const filter = scope(userId, tmdbId);
+  const filter = scope(userId, mediaType, tmdbId);
 
   const existing = await LibraryItem.findOne(filter);
   if (existing) {
     existing.status = status;
     if (isStale(existing.snapshot.snapshotAt)) {
       try {
-        existing.snapshot = buildSnapshot(await getMovieDetails(tmdbId));
+        existing.snapshot = buildSnapshot(
+          await getMediaDetails(mediaType, tmdbId),
+        );
       } catch {
         // TMDB hiccup: keep the old snapshot, the status change still succeeds
       }
@@ -112,7 +118,7 @@ export async function setStatus(
     return toView(existing);
   }
 
-  const details = await loadDetails(tmdbId); // a snapshot is required to create the item
+  const details = await loadDetails(mediaType, tmdbId); // a snapshot is required to create the item
   try {
     const created = await LibraryItem.create({
       ...filter,
@@ -123,7 +129,7 @@ export async function setStatus(
     return toView(created);
   } catch (err) {
     if (isDuplicateKeyError(err)) {
-      // Two requests added the same movie at once: just apply the status
+      // Two requests added the same title at once: just apply the status
       const doc = await LibraryItem.findOneAndUpdate(
         filter,
         { $set: { status } },
@@ -138,12 +144,13 @@ export async function setStatus(
 /** Set (1-10) or clear (null) the personal rating. The item must already exist. */
 export async function setRating(
   userId: string,
+  mediaType: MediaType,
   tmdbId: number,
   rating: number | null,
 ): Promise<LibraryItemView> {
   await connectDb();
   const doc = await LibraryItem.findOneAndUpdate(
-    scope(userId, tmdbId),
+    scope(userId, mediaType, tmdbId),
     { $set: { personalRating: rating } },
     { new: true, runValidators: true },
   ).lean<LibraryItemDoc>();
@@ -152,7 +159,7 @@ export async function setRating(
     throw new AppError(
       409,
       "NOT_IN_LIBRARY",
-      "Add this movie to your library before rating it.",
+      "Add this title to your library before rating it.",
     );
   }
   return toView(doc);
@@ -165,14 +172,16 @@ export async function setRating(
  */
 export async function removeItem(
   userId: string,
+  mediaType: MediaType,
   tmdbId: number,
   deleteEvents = false,
 ) {
   await connectDb();
-  const res = await LibraryItem.deleteOne(scope(userId, tmdbId));
+  const filter = scope(userId, mediaType, tmdbId);
+  const res = await LibraryItem.deleteOne(filter);
   let deletedEvents = 0;
   if (deleteEvents) {
-    const r = await WatchEvent.deleteMany(scope(userId, tmdbId));
+    const r = await WatchEvent.deleteMany(filter);
     deletedEvents = r.deletedCount;
   }
   return { removed: res.deletedCount > 0, deletedEvents };
@@ -193,10 +202,8 @@ export async function listLibrary(
 ): Promise<LibraryList> {
   await connectDb();
 
-  const filter: Record<string, unknown> = {
-    userId: oid(userId),
-    mediaType: "movie",
-  };
+  const filter: Record<string, unknown> = { userId: oid(userId) };
+  if (opts.media) filter.mediaType = opts.media;
   if (opts.status) filter.status = opts.status;
   if (opts.q)
     filter["snapshot.title"] = { $regex: escapeRegex(opts.q), $options: "i" };
@@ -232,21 +239,32 @@ export async function listLibrary(
   };
 }
 
+/** Counts across movies AND series: per status, per media type, and overall. */
 export async function getCounts(userId: string): Promise<LibraryCounts> {
   await connectDb();
-  const rows = await LibraryItem.aggregate<{ _id: LibraryStatus; n: number }>([
-    { $match: { userId: oid(userId), mediaType: "movie" } },
-    { $group: { _id: "$status", n: { $sum: 1 } } },
+  const rows = await LibraryItem.aggregate<{
+    _id: { status: LibraryStatus; media: "movie" | "tv" };
+    n: number;
+  }>([
+    { $match: { userId: oid(userId) } },
+    {
+      $group: {
+        _id: { status: "$status", media: "$mediaType" },
+        n: { $sum: 1 },
+      },
+    },
   ]);
   const counts: LibraryCounts = {
     watchlist: 0,
     watching: 0,
     watched: 0,
     total: 0,
+    media: { movie: 0, tv: 0 },
   };
   for (const r of rows) {
-    counts[r._id] = r.n;
+    counts[r._id.status] += r.n;
     counts.total += r.n;
+    if (r._id.media in counts.media) counts.media[r._id.media] += r.n;
   }
   return counts;
 }
@@ -256,10 +274,14 @@ export type FilterOptions = {
   genres: { id: number; name: string }[];
 };
 
-export async function getFilterOptions(userId: string): Promise<FilterOptions> {
+/** Dropdown options built from what is actually in the library (optionally for one media type). */
+export async function getFilterOptions(
+  userId: string,
+  media?: MediaType,
+): Promise<FilterOptions> {
   await connectDb();
   const base: PipelineStage = {
-    $match: { userId: oid(userId), mediaType: "movie" },
+    $match: { userId: oid(userId), ...(media ? { mediaType: media } : {}) },
   };
 
   const [yearRows, genreRows] = await Promise.all([

@@ -3,6 +3,7 @@ import type { LibraryItemView, LibraryStatus } from "@/lib/library-types";
 import { releaseYear } from "@/lib/tmdb";
 import { formatStars } from "@/lib/rating";
 import MoviePoster from "./MoviePoster";
+import { mediaPath } from "@/lib/media";
 
 const STATUS_LABEL: Record<LibraryStatus, string> = {
   watchlist: "Watchlist",
@@ -14,7 +15,7 @@ export default function LibraryCard({ item }: { item: LibraryItemView }) {
   const year = releaseYear(item.releaseDate);
   return (
     <Link
-      href={`/movie/${item.tmdbId}`}
+      href={mediaPath(item.mediaType, item.tmdbId)}
       className="group block focus-visible:outline-2 focus-visible:outline-amber-500"
     >
       <MoviePoster path={item.posterPath} title={item.title} />
@@ -28,6 +29,9 @@ export default function LibraryCard({ item }: { item: LibraryItemView }) {
         <span className="rounded bg-neutral-800 px-1.5 py-0.5">
           {STATUS_LABEL[item.status]}
         </span>
+        {item.mediaType === "tv" && (
+          <span className="rounded bg-neutral-800 px-1.5 py-0.5">Series</span>
+        )}
         {item.personalRating !== null && (
           <span className="text-amber-500">
             <span className="sr-only">Your rating: </span>★{" "}

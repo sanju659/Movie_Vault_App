@@ -2,20 +2,24 @@
 
 import { useState } from "react";
 import type { ViewingEventView } from "@/lib/watch-types";
-import { logViewingAction } from "@/app/(app)/movie/[tmdbId]/actions";
+import type { MediaType } from "@/lib/media";
+import { logViewingAction } from "@/server/actions/library";
 import ViewingEntry from "./ViewingEntry";
 import ViewingForm from "./ViewingForm";
 
 export default function ViewingHistory({
+  mediaType,
   tmdbId,
   events,
   today,
 }: {
+  mediaType: MediaType;
   tmdbId: number;
   events: ViewingEventView[];
   today: string;
 }) {
   const [adding, setAdding] = useState(false);
+  const isTv = mediaType === "tv";
 
   return (
     <section
@@ -46,14 +50,25 @@ export default function ViewingHistory({
       {adding ? (
         <ViewingForm
           heading={
-            events.length ? "Record another viewing" : "Record a viewing"
+            isTv
+              ? events.length
+                ? "Record finishing it again"
+                : "When did you finish the series?"
+              : events.length
+                ? "Record another viewing"
+                : "Record a viewing"
           }
           today={today}
           initialDate={today}
           submitLabel="Save viewing"
           onCancel={() => setAdding(false)}
           onSubmit={async (watchedOn, notes) => {
-            const res = await logViewingAction(tmdbId, watchedOn, notes);
+            const res = await logViewingAction(
+              mediaType,
+              tmdbId,
+              watchedOn,
+              notes,
+            );
             if (res.ok) setAdding(false);
             return res;
           }}
@@ -68,7 +83,9 @@ export default function ViewingHistory({
             {events.length ? "Record another viewing" : "Record a viewing"}
           </button>
           <p className="mt-1 text-xs text-neutral-500">
-            Recording a viewing marks this movie as Watched.
+            {isTv
+              ? "For a series, a viewing means you finished the whole series. Recording one marks it as Watched."
+              : "Recording a viewing marks this movie as Watched."}
           </p>
         </div>
       )}

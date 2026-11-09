@@ -9,6 +9,7 @@ import {
 import { listQuerySchema, type ListQuery } from "@/server/validation/library";
 import LibraryCard from "@/components/LibraryCard";
 import type { LibrarySort, LibraryStatus } from "@/lib/library-types";
+import type { MediaType } from "@/lib/media";
 
 export const metadata = { title: "My Collection" };
 
@@ -54,6 +55,7 @@ function href(p: Partial<ListQuery>) {
   if (p.year) sp.set("year", String(p.year));
   if (p.rating) sp.set("rating", p.rating);
   if (p.page && p.page > 1) sp.set("page", String(p.page));
+  if (p.media) sp.set("media", p.media);
   const s = sp.toString();
   return s ? `/collection?${s}` : "/collection";
 }
@@ -67,7 +69,7 @@ export default async function CollectionPage({ searchParams }: Props) {
   const [list, counts, options] = await Promise.all([
     listLibrary(user.id, query),
     getCounts(user.id),
-    getFilterOptions(user.id),
+    getFilterOptions(user.id, query.media),
   ]);
 
   // Hand-edited or stale link pointing past the last page
@@ -77,6 +79,7 @@ export default async function CollectionPage({ searchParams }: Props) {
 
   // Tabs keep the active filters but reset to page 1
   const filtersOnly = {
+    media: query.media,
     sort: query.sort,
     q: query.q,
     genre: query.genre,
@@ -84,7 +87,7 @@ export default async function CollectionPage({ searchParams }: Props) {
     rating: query.rating,
   };
   const hasFilters = Boolean(
-    query.q || query.genre || query.year || query.rating,
+    query.q || query.genre || query.year || query.rating || query.media,
   );
   const canReset = hasFilters || query.sort !== "added";
 
@@ -95,6 +98,15 @@ export default async function CollectionPage({ searchParams }: Props) {
     : query.status
       ? EMPTY_MESSAGES[query.status]
       : "Your collection is empty.";
+  const MEDIA_OPTIONS: {
+    label: string;
+    value: MediaType | undefined;
+    count: number;
+  }[] = [
+    { label: "All", value: undefined, count: counts.total },
+    { label: "Movies", value: "movie", count: counts.media.movie },
+    { label: "TV series", value: "tv", count: counts.media.tv },
+  ];
 
   return (
     <div>
@@ -125,6 +137,33 @@ export default async function CollectionPage({ searchParams }: Props) {
       <p className="-mt-2 mb-4 text-xs text-neutral-500">
         Tab counts show all titles, before search and filters.
       </p>
+      <nav
+        aria-label="Media type filter"
+        className="mb-4 flex flex-wrap items-center gap-2 text-sm"
+      >
+        <span className="text-neutral-400">Type:</span>
+        {MEDIA_OPTIONS.map((m) => {
+          const active = m.value === query.media;
+          return (
+            <Link
+              key={m.label}
+              href={href({
+                ...filtersOnly,
+                status: query.status,
+                media: m.value,
+              })}
+              aria-current={active ? "page" : undefined}
+              className={`rounded border px-3 py-1 ${
+                active
+                  ? "border-amber-500 text-amber-400"
+                  : "border-neutral-700 hover:border-neutral-400"
+              }`}
+            >
+              {m.label} <span className="text-neutral-400">({m.count})</span>
+            </Link>
+          );
+        })}
+      </nav>
 
       <form
         action="/collection"
@@ -133,6 +172,9 @@ export default async function CollectionPage({ searchParams }: Props) {
       >
         {query.status && (
           <input type="hidden" name="status" value={query.status} />
+        )}
+        {query.media && (
+          <input type="hidden" name="media" value={query.media} />
         )}
 
         <label className="text-sm">
@@ -246,7 +288,7 @@ export default async function CollectionPage({ searchParams }: Props) {
           </p>
           <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
             {list.items.map((item) => (
-              <li key={item.tmdbId}>
+              <li key={`${item.mediaType}-${item.tmdbId}`}>
                 <LibraryCard item={item} />
               </li>
             ))}

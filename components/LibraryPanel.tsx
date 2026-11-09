@@ -2,6 +2,7 @@
 
 import { useOptimistic, useRef, useState, useTransition } from "react";
 import type { LibraryItemView, LibraryStatus } from "@/lib/library-types";
+import { MEDIA_NOUN, WATCHED_QUESTION, type MediaType } from "@/lib/media";
 import { formatStars } from "@/lib/rating";
 import {
   logViewingAction,
@@ -9,7 +10,7 @@ import {
   setRatingAction,
   setStatusAction,
   type ActionResult,
-} from "@/app/(app)/movie/[tmdbId]/actions";
+} from "@/server/actions/library";
 import ViewingForm from "./ViewingForm";
 
 const STATUS_OPTIONS: { value: LibraryStatus; label: string }[] = [
@@ -99,11 +100,13 @@ function RatingInput({
 }
 
 export default function LibraryPanel({
+  mediaType,
   tmdbId,
   item,
   viewingCount,
   today,
 }: {
+  mediaType: MediaType;
   tmdbId: number;
   item: LibraryItemView | null;
   viewingCount: number;
@@ -117,6 +120,7 @@ export default function LibraryPanel({
   const [rating, setOptimisticRating] = useOptimistic(
     item?.personalRating ?? null,
   );
+  const noun = MEDIA_NOUN[mediaType];
 
   function run(fn: () => Promise<ActionResult>, optimistic?: () => void) {
     setError("");
@@ -134,11 +138,11 @@ export default function LibraryPanel({
   function chooseStatus(status: LibraryStatus) {
     setError("");
     if (status === "watched") {
-      setPrompting(true); // rule 3c: ask "When did you watch it?" first
+      setPrompting(true); // rule 3c: ask for the date first
       return;
     }
     setPrompting(false);
-    run(() => setStatusAction(tmdbId, status));
+    run(() => setStatusAction(mediaType, tmdbId, status));
   }
 
   return (
@@ -178,14 +182,21 @@ export default function LibraryPanel({
 
       {prompting && (
         <ViewingForm
-          heading="When did you watch it?"
+          heading={WATCHED_QUESTION[mediaType]}
           today={today}
           initialDate={today}
           submitLabel="Save viewing"
           onCancel={() => setPrompting(false)}
-          onSkip={() => run(() => setStatusAction(tmdbId, "watched"))}
+          onSkip={() =>
+            run(() => setStatusAction(mediaType, tmdbId, "watched"))
+          }
           onSubmit={async (watchedOn, notes) => {
-            const res = await logViewingAction(tmdbId, watchedOn, notes);
+            const res = await logViewingAction(
+              mediaType,
+              tmdbId,
+              watchedOn,
+              notes,
+            );
             if (res.ok) setPrompting(false);
             return res;
           }}
@@ -214,7 +225,7 @@ export default function LibraryPanel({
             disabled={!item || pending}
             onChange={(v) =>
               run(
-                () => setRatingAction(tmdbId, v),
+                () => setRatingAction(mediaType, tmdbId, v),
                 () => setOptimisticRating(v),
               )
             }
@@ -225,7 +236,7 @@ export default function LibraryPanel({
               disabled={pending}
               onClick={() =>
                 run(
-                  () => setRatingAction(tmdbId, null),
+                  () => setRatingAction(mediaType, tmdbId, null),
                   () => setOptimisticRating(null),
                 )
               }
@@ -237,7 +248,7 @@ export default function LibraryPanel({
         </div>
         {!item && (
           <p className="mt-1 text-sm text-neutral-500">
-            Add this movie to your library to rate it.
+            Add this {noun} to your library to rate it.
           </p>
         )}
       </div>
@@ -260,12 +271,12 @@ export default function LibraryPanel({
               className="space-y-3 text-sm"
             >
               <p>
-                Remove this movie from your library? Your rating will be lost.
+                Remove this {noun} from your library? Your rating will be lost.
               </p>
               {viewingCount > 0 && (
                 <p className="text-neutral-400">
                   You have {viewingCount} recorded{" "}
-                  {viewingCount === 1 ? "viewing" : "viewings"} of this movie.
+                  {viewingCount === 1 ? "viewing" : "viewings"} of this {noun}.
                   Your viewing history is kept unless you choose to delete it.
                 </p>
               )}
@@ -273,7 +284,9 @@ export default function LibraryPanel({
                 <button
                   type="button"
                   disabled={pending}
-                  onClick={() => run(() => removeAction(tmdbId, false))}
+                  onClick={() =>
+                    run(() => removeAction(mediaType, tmdbId, false))
+                  }
                   className="rounded bg-red-600 px-3 py-1 font-medium text-white disabled:opacity-60"
                 >
                   {viewingCount > 0
@@ -284,7 +297,9 @@ export default function LibraryPanel({
                   <button
                     type="button"
                     disabled={pending}
-                    onClick={() => run(() => removeAction(tmdbId, true))}
+                    onClick={() =>
+                      run(() => removeAction(mediaType, tmdbId, true))
+                    }
                     className="rounded border border-red-600 px-3 py-1 font-medium text-red-400 disabled:opacity-60"
                   >
                     Remove and delete {viewingCount}{" "}

@@ -1,3 +1,5 @@
+import type { MediaType } from "./media";
+
 export const LIBRARY_STATUSES = ["watchlist", "watching", "watched"] as const;
 export type LibraryStatus = (typeof LIBRARY_STATUSES)[number];
 
@@ -6,6 +8,7 @@ export type LibrarySort = (typeof LIBRARY_SORTS)[number];
 
 // Plain, serializable shape that is safe to pass to client components
 export type LibraryItemView = {
+  mediaType: MediaType;
   tmdbId: number;
   status: LibraryStatus;
   personalRating: number | null; // integer 1-10, or null if unrated
@@ -25,4 +28,7 @@ export type LibraryList = {
   total: number;
 };
 
-export type LibraryCounts = Record<LibraryStatus, number> & { total: number };
+export type LibraryCounts = Record<LibraryStatus, number> & {
+  total: number;
+  media: Record<MediaType, number>;
+};

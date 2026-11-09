@@ -43,6 +43,7 @@ export type RawList = {
 
 export function mapSummary(r: RawMovie): MovieSummary {
   return {
+    mediaType: "movie",
     tmdbId: r.id,
     title: r.title || "Untitled",
     posterPath: r.poster_path ?? null,
@@ -129,13 +130,15 @@ export function mapPersonDetails(r: RawPersonDetails): PersonDetails {
   const acted = dedupe(r.movie_credits?.cast ?? [])
     .sort(byPopularity)
     .map(mapSummary);
-  const directed = dedupe((r.movie_credits?.crew ?? []).filter((c) => c.job === 'Director'))
+  const directed = dedupe(
+    (r.movie_credits?.crew ?? []).filter((c) => c.job === "Director"),
+  )
     .sort(byNewest)
     .map(mapSummary);
 
   return {
     id: r.id,
-    name: r.name || 'Unknown',
+    name: r.name || "Unknown",
     profilePath: r.profile_path ?? null,
     knownForDepartment: r.known_for_department || null,
     biography: r.biography?.trim() || null,
@@ -143,5 +146,86 @@ export function mapPersonDetails(r: RawPersonDetails): PersonDetails {
     placeOfBirth: r.place_of_birth || null,
     acted,
     directed,
+  };
+}
+
+// ---------- TV ----------
+
+type RawTv = {
+  id: number;
+  name?: string;
+  poster_path?: string | null;
+  first_air_date?: string | null;
+};
+
+export type RawTvList = {
+  results?: RawTv[];
+  page?: number;
+  total_pages?: number;
+  total_results?: number;
+};
+
+export type RawTvDetails = RawTv & {
+  original_name?: string;
+  overview?: string | null;
+  tagline?: string | null;
+  backdrop_path?: string | null;
+  episode_run_time?: number[];
+  genres?: { id: number; name: string }[];
+  vote_average?: number;
+  vote_count?: number;
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+  created_by?: { id: number; name: string }[];
+  aggregate_credits?: {
+    cast?: {
+      id: number;
+      name: string;
+      order?: number;
+      roles?: { character?: string | null }[];
+    }[];
+  };
+};
+
+// Takes one argument on purpose, so it is safe to pass straight to .map()
+export function mapTvSummary(r: RawTv): MovieSummary {
+  return {
+    mediaType: "tv",
+    tmdbId: r.id,
+    title: r.name || "Untitled",
+    posterPath: r.poster_path ?? null,
+    releaseDate: r.first_air_date || null,
+  };
+}
+
+export function mapTvDetails(r: RawTvDetails): MovieDetails {
+  const cast = [...(r.aggregate_credits?.cast ?? [])]
+    .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+    .slice(0, 15)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      character: c.roles?.[0]?.character || null,
+    }));
+
+  const episodeRuntime = (r.episode_run_time ?? []).find((m) => m > 0) ?? null;
+  const voteCount = r.vote_count ?? 0;
+
+  return {
+    ...mapTvSummary(r),
+    originalTitle: r.original_name || r.name || "Untitled",
+    overview: r.overview || null,
+    tagline: r.tagline || null,
+    backdropPath: r.backdrop_path ?? null,
+    runtimeMinutes: null, // a series has no single runtime
+    episodeRuntimeMinutes: episodeRuntime,
+    genres: r.genres ?? [],
+    voteAverage: voteCount > 0 && r.vote_average ? r.vote_average : null,
+    voteCount,
+    directors: [],
+    creators: (r.created_by ?? []).map((c) => ({ id: c.id, name: c.name })),
+    numberOfSeasons: r.number_of_seasons ?? null,
+    numberOfEpisodes: r.number_of_episodes ?? null,
+    cast,
   };
 }

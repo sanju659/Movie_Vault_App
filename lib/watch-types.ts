@@ -1,4 +1,7 @@
+import type { MediaType } from "./media";
+
 export type ViewingEventView = {
+  mediaType: MediaType;
   id: string;
   tmdbId: number;
   watchedOn: string; // "YYYY-MM-DD"

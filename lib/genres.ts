@@ -1,5 +1,6 @@
-// TMDB movie genres (id -> name). Safe for client and server.
-export const GENRE_NAMES: Record<number, string> = {
+import type { MediaType } from "./media";
+
+const MOVIE_GENRES: Record<number, string> = {
   28: "Action",
   12: "Adventure",
   16: "Animation",
@@ -21,4 +22,38 @@ export const GENRE_NAMES: Record<number, string> = {
   37: "Western",
 };
 
+// TMDB uses its own genre list for TV (some ids overlap with movies)
+const TV_GENRES: Record<number, string> = {
+  10759: "Action & Adventure",
+  16: "Animation",
+  35: "Comedy",
+  80: "Crime",
+  99: "Documentary",
+  18: "Drama",
+  10751: "Family",
+  10762: "Kids",
+  9648: "Mystery",
+  10763: "News",
+  10764: "Reality",
+  10765: "Sci-Fi & Fantasy",
+  10766: "Soap",
+  10767: "Talk",
+  10768: "War & Politics",
+  37: "Western",
+};
+
+// id -> name for every genre we know (movies + TV)
+export const GENRE_NAMES: Record<number, string> = {
+  ...MOVIE_GENRES,
+  ...TV_GENRES,
+};
+
 export const genreName = (id: number) => GENRE_NAMES[id] ?? null;
+
+/** Genres offered in the browse form for one media type. */
+export function genresFor(type: MediaType) {
+  const source = type === "tv" ? TV_GENRES : MOVIE_GENRES;
+  return Object.entries(source)
+    .map(([id, name]) => ({ id: Number(id), name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}

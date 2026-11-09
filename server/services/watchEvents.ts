@@ -7,6 +7,7 @@ import { TmdbCache } from "@/server/models/TmdbCache";
 import { getItem, setStatus } from "@/server/services/library";
 import { AppError } from "@/server/errors";
 import { todayIn } from "@/lib/dates";
+import type { MediaType } from "@/lib/media";
 import type { PublicUser } from "@/server/auth/session";
 import type { MovieDetails } from "@/lib/movie-types";
 import type {
@@ -17,6 +18,9 @@ import type {
 
 const PAGE_SIZE = 30;
 const oid = (id: string) => new Types.ObjectId(id);
+
+// A movie and a series can share the same TMDB number, so always key by both
+const keyOf = (mediaType: string, tmdbId: number) => `${mediaType}:${tmdbId}`;
 
 type EventInput = { watchedOn: string; notes: string | null };
 
@@ -39,53 +43,56 @@ const sortKey = (e: WatchEventLean) =>
 
 const toView = (e: WatchEventLean, isRewatch: boolean): ViewingEventView => ({
   id: String(e._id),
+  mediaType: e.mediaType,
   tmdbId: e.tmdbId,
   watchedOn: e.watchedOn,
   notes: e.notes ?? null,
   isRewatch,
 });
 
-/** First (earliest) viewing id per title, across ALL of the user's history. */
+/** First (earliest) viewing id per title ("movie:123"), across ALL of the user's history. */
 async function firstEventIds(userId: string, tmdbIds: number[]) {
   const rows = await WatchEvent.find({
     userId: oid(userId),
-    mediaType: "movie",
     tmdbId: { $in: tmdbIds },
   })
-    .select("tmdbId watchedOn createdAt")
+    .select("tmdbId mediaType watchedOn createdAt")
     .lean<WatchEventLean[]>();
 
-  const best = new Map<number, WatchEventLean>();
+  const best = new Map<string, WatchEventLean>();
   for (const r of rows) {
-    const cur = best.get(r.tmdbId);
-    if (!cur || sortKey(r) < sortKey(cur)) best.set(r.tmdbId, r);
+    const k = keyOf(r.mediaType, r.tmdbId);
+    const cur = best.get(k);
+    if (!cur || sortKey(r) < sortKey(cur)) best.set(k, r);
   }
-  return new Map([...best].map(([tmdbId, e]) => [tmdbId, String(e._id)]));
+  return new Map([...best].map(([k, e]) => [k, String(e._id)]));
 }
 
 /**
  * Record a viewing and keep the library status consistent:
  *  3a. no library item   -> create one with status "watched"
  *  3b. watchlist/watching -> set status to "watched"
+ * For a series, a viewing means "finished the whole series".
  * The library change happens first, so an event never exists without a snapshot.
  */
 export async function logViewing(
   user: PublicUser,
+  mediaType: MediaType,
   tmdbId: number,
   input: EventInput,
 ) {
   assertNotFuture(user.timezone, input.watchedOn);
   await connectDb();
 
-  const existing = await getItem(user.id, tmdbId);
+  const existing = await getItem(user.id, mediaType, tmdbId);
   if (!existing || existing.status !== "watched") {
-    await setStatus(user.id, tmdbId, "watched");
+    await setStatus(user.id, mediaType, tmdbId, "watched");
   }
 
   const doc = await WatchEvent.create({
     userId: oid(user.id),
+    mediaType,
     tmdbId,
-    mediaType: "movie",
     watchedOn: input.watchedOn,
     notes: input.notes,
   });
@@ -110,7 +117,7 @@ export async function updateEvent(
       "EVENT_NOT_FOUND",
       "That viewing no longer exists.",
     );
-  return { tmdbId: doc.tmdbId };
+  return { tmdbId: doc.tmdbId, mediaType: doc.mediaType };
 }
 
 /** Deleting a viewing never changes the library status (rule 3e). Idempotent. */
@@ -123,15 +130,16 @@ export async function deleteEvent(userId: string, eventId: string) {
   return res.deletedCount > 0;
 }
 
-/** All viewings of one movie, newest first. */
-export async function listEventsForMovie(
+/** All viewings of one title, newest first. */
+export async function listEventsForTitle(
   userId: string,
+  mediaType: MediaType,
   tmdbId: number,
 ): Promise<ViewingEventView[]> {
   await connectDb();
   const docs = await WatchEvent.find({
     userId: oid(userId),
-    mediaType: "movie",
+    mediaType,
     tmdbId,
   }).lean<WatchEventLean[]>();
   docs.sort((a, b) => (sortKey(a) < sortKey(b) ? 1 : -1)); // newest first
@@ -139,13 +147,13 @@ export async function listEventsForMovie(
   return docs.map((d) => toView(d, String(d._id) !== firstId));
 }
 
-/** The timeline across all movies, newest first. */
+/** The timeline across all movies and series, newest first. */
 export async function listHistory(
   userId: string,
   page: number,
 ): Promise<HistoryList> {
   await connectDb();
-  const filter = { userId: oid(userId), mediaType: "movie" as const };
+  const filter = { userId: oid(userId) };
 
   const [docs, total] = await Promise.all([
     WatchEvent.find(filter)
@@ -160,8 +168,8 @@ export async function listHistory(
   const [firsts, items] = await Promise.all([
     firstEventIds(userId, ids),
     LibraryItem.find({ ...filter, tmdbId: { $in: ids } })
-      .select("tmdbId snapshot")
-      .lean<Pick<LibraryItemDoc, "tmdbId" | "snapshot">[]>(),
+      .select("tmdbId mediaType snapshot")
+      .lean<Pick<LibraryItemDoc, "tmdbId" | "mediaType" | "snapshot">[]>(),
   ]);
 
   type Info = {
@@ -169,9 +177,9 @@ export async function listHistory(
     posterPath: string | null;
     releaseDate: string | null;
   };
-  const info = new Map<number, Info>();
+  const info = new Map<string, Info>();
   for (const i of items) {
-    info.set(i.tmdbId, {
+    info.set(keyOf(i.mediaType, i.tmdbId), {
       title: i.snapshot.title,
       posterPath: i.snapshot.posterPath ?? null,
       releaseDate: i.snapshot.releaseDate ?? null,
@@ -179,17 +187,20 @@ export async function listHistory(
   }
 
   // Orphaned events (library item removed) fall back to the shared TMDB cache
-  const missing = ids.filter((id) => !info.has(id));
+  const missing = [
+    ...new Set(
+      docs
+        .filter((d) => !info.has(keyOf(d.mediaType, d.tmdbId)))
+        .map((d) => d.tmdbId),
+    ),
+  ];
   if (missing.length) {
-    const cached = await TmdbCache.find({
-      mediaType: "movie",
-      tmdbId: { $in: missing },
-    })
-      .select("tmdbId data")
-      .lean<{ tmdbId: number; data: unknown }[]>();
+    const cached = await TmdbCache.find({ tmdbId: { $in: missing } })
+      .select("tmdbId mediaType data")
+      .lean<{ tmdbId: number; mediaType: MediaType; data: unknown }[]>();
     for (const c of cached) {
       const d = c.data as MovieDetails;
-      info.set(c.tmdbId, {
+      info.set(keyOf(c.mediaType, c.tmdbId), {
         title: d.title,
         posterPath: d.posterPath,
         releaseDate: d.releaseDate,
@@ -197,14 +208,17 @@ export async function listHistory(
     }
   }
 
-  const entries: HistoryEntry[] = docs.map((d) => ({
-    ...toView(d, firsts.get(d.tmdbId) !== String(d._id)),
-    ...(info.get(d.tmdbId) ?? {
-      title: "Unknown title",
-      posterPath: null,
-      releaseDate: null,
-    }),
-  }));
+  const entries: HistoryEntry[] = docs.map((d) => {
+    const key = keyOf(d.mediaType, d.tmdbId);
+    return {
+      ...toView(d, firsts.get(key) !== String(d._id)),
+      ...(info.get(key) ?? {
+        title: "Unknown title",
+        posterPath: null,
+        releaseDate: null,
+      }),
+    };
+  });
 
   return {
     entries,

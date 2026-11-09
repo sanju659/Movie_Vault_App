@@ -3,10 +3,7 @@
 import { useState, useTransition } from "react";
 import type { ViewingEventView } from "@/lib/watch-types";
 import { formatWatchedOn } from "@/lib/dates";
-import {
-  deleteEventAction,
-  updateEventAction,
-} from "@/app/(app)/movie/[tmdbId]/actions";
+import { deleteEventAction, updateEventAction } from "@/server/actions/library";
 import ViewingForm from "./ViewingForm";
 
 export default function ViewingEntry({
