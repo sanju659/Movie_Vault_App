@@ -1,5 +1,6 @@
 import Link from "next/link";
 import LogoutButton from "./LogoutButton";
+import HeaderSearch from "./HeaderSearch";
 
 export default function AppHeader({ userName }: { userName: string }) {
   return (
@@ -25,16 +26,7 @@ export default function AppHeader({ userName }: { userName: string }) {
             Settings
           </Link>
         </nav>
-        <form action="/search" role="search" className="ml-auto w-full sm:w-64">
-          <input
-            name="q"
-            type="search"
-            aria-label="Search movies"
-            placeholder="Search movies…"
-            maxLength={100}
-            className="w-full rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
-          />
-        </form>
+        <HeaderSearch />
         <span className="text-sm text-neutral-400">{userName}</span>
         <LogoutButton />
       </div>

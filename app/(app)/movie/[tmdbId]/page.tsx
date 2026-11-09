@@ -12,6 +12,7 @@ import { getItem } from "@/server/services/library";
 import ViewingHistory from "@/components/ViewingHistory";
 import { listEventsForMovie } from "@/server/services/watchEvents";
 import { todayIn } from "@/lib/dates";
+import Link from "next/link";
 
 type Props = { params: Promise<{ tmdbId: string }> };
 
@@ -100,7 +101,17 @@ export default async function MoviePage({ params }: Props) {
           {movie.directors.length > 0 && (
             <p className="mt-4 text-sm">
               <span className="text-neutral-400">Directed by: </span>
-              {movie.directors.map((d) => d.name).join(", ")}
+              {movie.directors.map((d, i) => (
+                <span key={d.id}>
+                  {i > 0 && ", "}
+                  <Link
+                    href={`/person/${d.id}`}
+                    className="underline hover:text-amber-500"
+                  >
+                    {d.name}
+                  </Link>
+                </span>
+              ))}
             </p>
           )}
 
@@ -120,7 +131,12 @@ export default async function MoviePage({ params }: Props) {
               <ul className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                 {movie.cast.map((c) => (
                   <li key={c.id}>
-                    {c.name}
+                    <Link
+                      href={`/person/${c.id}`}
+                      className="underline hover:text-amber-500"
+                    >
+                      {c.name}
+                    </Link>
                     {c.character && (
                       <span className="text-neutral-400">
                         {" "}

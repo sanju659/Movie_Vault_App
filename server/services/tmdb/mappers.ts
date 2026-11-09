@@ -1,10 +1,17 @@
-import type { MovieDetails, MovieSummary } from "@/lib/movie-types";
+import type {
+  MovieDetails,
+  MovieSummary,
+  PersonDetails,
+  PersonSummary,
+} from "@/lib/movie-types";
 
 type RawMovie = {
   id: number;
   title?: string;
   poster_path?: string | null;
   release_date?: string | null;
+  adult?: boolean;
+  popularity?: number;
 };
 
 export type RawDetails = RawMovie & {
@@ -67,5 +74,74 @@ export function mapDetails(r: RawDetails): MovieDetails {
     voteCount,
     directors,
     cast,
+  };
+}
+
+type RawPerson = {
+  id: number;
+  name?: string;
+  profile_path?: string | null;
+  known_for_department?: string | null;
+  known_for?: { title?: string; name?: string }[];
+};
+
+export type RawPersonList = {
+  results?: RawPerson[];
+  page?: number;
+  total_pages?: number;
+  total_results?: number;
+};
+
+export type RawPersonDetails = RawPerson & {
+  biography?: string | null;
+  birthday?: string | null;
+  place_of_birth?: string | null;
+  movie_credits?: {
+    cast?: RawMovie[];
+    crew?: (RawMovie & { job?: string })[];
+  };
+};
+
+export function mapPersonSummary(r: RawPerson): PersonSummary {
+  return {
+    id: r.id,
+    name: r.name || "Unknown",
+    profilePath: r.profile_path ?? null,
+    knownForDepartment: r.known_for_department || null,
+    knownFor: (r.known_for ?? [])
+      .map((k) => k.title || k.name)
+      .filter((t): t is string => Boolean(t))
+      .slice(0, 3),
+  };
+}
+
+// Drops adult titles and duplicate credits for the same movie
+function dedupe<T extends RawMovie>(list: T[]): T[] {
+  const seen = new Set<number>();
+  return list.filter((m) => !m.adult && !seen.has(m.id) && seen.add(m.id));
+}
+const byPopularity = (a: RawMovie, b: RawMovie) =>
+  (b.popularity ?? 0) - (a.popularity ?? 0);
+const byNewest = (a: RawMovie, b: RawMovie) =>
+  (b.release_date || "").localeCompare(a.release_date || ""); // undated last
+
+export function mapPersonDetails(r: RawPersonDetails): PersonDetails {
+  const acted = dedupe(r.movie_credits?.cast ?? [])
+    .sort(byPopularity)
+    .map(mapSummary);
+  const directed = dedupe((r.movie_credits?.crew ?? []).filter((c) => c.job === 'Director'))
+    .sort(byNewest)
+    .map(mapSummary);
+
+  return {
+    id: r.id,
+    name: r.name || 'Unknown',
+    profilePath: r.profile_path ?? null,
+    knownForDepartment: r.known_for_department || null,
+    biography: r.biography?.trim() || null,
+    birthday: r.birthday || null,
+    placeOfBirth: r.place_of_birth || null,
+    acted,
+    directed,
   };
 }

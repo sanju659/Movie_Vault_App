@@ -1,0 +1,22 @@
+// TMDB original-language codes (ISO 639-1). Extend as you like.
+export const LANGUAGES = [
+  { code: "en", name: "English" },
+  { code: "hi", name: "Hindi" },
+  { code: "bn", name: "Bengali" },
+  { code: "ta", name: "Tamil" },
+  { code: "te", name: "Telugu" },
+  { code: "ml", name: "Malayalam" },
+  { code: "kn", name: "Kannada" },
+  { code: "mr", name: "Marathi" },
+  { code: "ja", name: "Japanese" },
+  { code: "ko", name: "Korean" },
+  { code: "zh", name: "Chinese" },
+  { code: "th", name: "Thai" },
+  { code: "es", name: "Spanish" },
+  { code: "fr", name: "French" },
+  { code: "de", name: "German" },
+  { code: "it", name: "Italian" },
+  { code: "pt", name: "Portuguese" },
+  { code: "ru", name: "Russian" },
+  { code: "tr", name: "Turkish" },
+] as const;

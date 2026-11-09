@@ -24,3 +24,30 @@ export type MovieDetails = MovieSummary & {
   directors: { id: number; name: string }[];
   cast: { id: number; name: string; character: string | null }[];
 };
+
+export type PersonSummary = {
+  id: number;
+  name: string;
+  profilePath: string | null;
+  knownForDepartment: string | null; // "Acting", "Directing", ...
+  knownFor: string[]; // up to 3 titles
+};
+
+export type PersonSearchResult = {
+  results: PersonSummary[];
+  page: number;
+  totalPages: number;
+  totalResults: number;
+};
+
+export type PersonDetails = {
+  id: number;
+  name: string;
+  profilePath: string | null;
+  knownForDepartment: string | null;
+  biography: string | null;
+  birthday: string | null; // "YYYY-MM-DD"
+  placeOfBirth: string | null;
+  acted: MovieSummary[];
+  directed: MovieSummary[];
+};
